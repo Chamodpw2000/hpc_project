@@ -1,0 +1,246 @@
+{
+  "info": {
+    "name": "CivetWeb Test API",
+    "description": "Comprehensive test API collection for CivetWeb server",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["health"]
+        },
+        "description": "Check server health and status"
+      }
+    },
+    {
+      "name": "Get All Users",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/users",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "users"]
+        },
+        "description": "Retrieve all users from the system"
+      }
+    },
+    {
+      "name": "Get User by ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/users/1",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "users", "1"]
+        },
+        "description": "Retrieve a specific user by ID"
+      }
+    },
+    {
+      "name": "Create User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"role\": \"user\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/users",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "users"]
+        },
+        "description": "Create a new user"
+      }
+    },
+    {
+      "name": "Update User",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"John Updated\",\n  \"email\": \"john.updated@example.com\",\n  \"role\": \"admin\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/users/1",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "users", "1"]
+        },
+        "description": "Update an existing user"
+      }
+    },
+    {
+      "name": "Delete User",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/users/1",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "users", "1"]
+        },
+        "description": "Delete a user by ID"
+      }
+    },
+    {
+      "name": "Get Data",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/data",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "data"]
+        },
+        "description": "Retrieve sample data"
+      }
+    },
+    {
+      "name": "Post Data",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"test_data\",\n  \"value\": \"sample_value\",\n  \"timestamp\": \"2026-02-25T10:00:00Z\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8090/api/data",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "data"]
+        },
+        "description": "Submit data for processing"
+      }
+    },
+    {
+      "name": "Test - Performance",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/test/performance",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "test", "performance"]
+        },
+        "description": "Performance test endpoint with timing information"
+      }
+    },
+    {
+      "name": "Test - Error",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/test/error",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "test", "error"]
+        },
+        "description": "Test endpoint that returns a 500 error"
+      }
+    },
+    {
+      "name": "Test - Delay",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/test/delay",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "test", "delay"]
+        },
+        "description": "Test endpoint with 2-second delay"
+      }
+    },
+    {
+      "name": "Test - Large Response",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/test/large-response",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "test", "large-response"]
+        },
+        "description": "Test endpoint that returns a large response payload"
+      }
+    },
+    {
+      "name": "List Available Tests",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/api/test",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["api", "test"]
+        },
+        "description": "List all available test endpoint types"
+      }
+    },
+    {
+      "name": "Shutdown Server",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8090/exit",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8090",
+          "path": ["exit"]
+        },
+        "description": "Gracefully shutdown the server"
+      }
+    }
+  ]
+}

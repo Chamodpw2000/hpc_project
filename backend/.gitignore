@@ -1,0 +1,22 @@
+# Build artifacts
+*.o
+*.a
+score_analyzer_backend
+test_server
+
+# Log files
+*.log
+
+# Configuration (contains sensitive data)
+config.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
