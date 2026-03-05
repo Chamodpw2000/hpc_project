@@ -41,4 +41,13 @@ int db_add_score(db_connection_t *db, const char *student_id, const char *subjec
 char* db_get_student_scores(db_connection_t *db, const char *student_id);
 char* db_get_all_scores(db_connection_t *db);
 
+/* Seed dummy data for OpenMP testing */
+int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student);
+
+/* Fetch all scores as a raw double array for computation */
+double* db_get_scores_array(db_connection_t *db, int *out_count);
+
+/* Get total count of scores */
+int db_get_scores_count(db_connection_t *db);
+
 #endif /* DB_H */
