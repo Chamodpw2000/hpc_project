@@ -17,8 +17,8 @@ CIVETWEB_SRC = src/civetweb.c
 MONGOC_FLAGS = $(shell pkg-config --cflags libmongoc-1.0)
 MONGOC_LIBS = $(shell pkg-config --libs libmongoc-1.0)
 
-CFLAGS = -I./include $(COPT) -Wall -Wextra -std=c99 $(MONGOC_FLAGS) -D_GNU_SOURCE
-LIBS = -lpthread $(MONGOC_LIBS)
+CFLAGS = -I./include $(COPT) -Wall -Wextra -std=c99 $(MONGOC_FLAGS) -D_GNU_SOURCE -fopenmp
+LIBS = -lpthread $(MONGOC_LIBS) -lgomp -lm
 
 include ./resources/Makefile.in-os
 
