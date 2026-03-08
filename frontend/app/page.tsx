@@ -515,6 +515,44 @@ export default function DashboardPage() {
     } catch { /* ignore */ }
   }
 
+  /* ── Generate next Student ID ── */
+  async function generateNextStudentId(): Promise<string> {
+    try {
+      // Fetch ALL students (no class filter) to find the globally highest ID
+      const res = await fetch("/api/students", { cache: "no-store" });
+      if (!res.ok) return "S00001";
+      const json = await res.json();
+      const allStudents: StudentItem[] = json.data ?? [];
+      if (allStudents.length === 0) return "S00001";
+
+      // Extract numeric part from IDs like "S00001", "S123", etc.
+      let maxNum = 0;
+      for (const stu of allStudents) {
+        const id = stu.student_id ?? "";
+        const match = id.match(/^S(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+      const next = maxNum + 1;
+      return `S${String(next).padStart(5, "0")}`;
+    } catch {
+      return "S00001";
+    }
+  }
+
+  /* ── Open Add Student modal with auto-generated ID ── */
+  async function openAddStudentModal() {
+    setFormError("");
+    setNewStudentName("");
+    setNewStudentEmail("");
+    setNewStudentId("Generating…");
+    setShowAddStudent(true);
+    const nextId = await generateNextStudentId();
+    setNewStudentId(nextId);
+  }
+
   /* ── Add Student ── */
   async function handleAddStudent(e: React.FormEvent) {
     e.preventDefault();
@@ -798,14 +836,14 @@ export default function DashboardPage() {
         <Modal title={`Add Student — ${selectedClass}`} onClose={() => { setShowAddStudent(false); setNewStudentName(""); setNewStudentEmail(""); setNewStudentId(""); setFormError(""); }}>
           <form onSubmit={handleAddStudent} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-1.5 uppercase tracking-wider">Student ID</label>
+              <label className="block text-xs font-medium text-zinc-400 mb-1.5 uppercase tracking-wider">Student ID (auto-generated)</label>
               <input
                 type="text"
                 value={newStudentId}
-                onChange={(e) => { setNewStudentId(e.target.value); setFormError(""); }}
-                placeholder="e.g. S001"
-                autoFocus
-                className="w-full bg-zinc-800 border border-zinc-700 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-lg px-4 py-2.5 text-white placeholder-zinc-500 text-sm outline-none transition-colors"
+                readOnly
+                tabIndex={-1}
+                title="Auto-generated Student ID"
+                className="w-full bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-4 py-2.5 text-indigo-300 font-mono text-sm outline-none cursor-default"
               />
             </div>
             <div>
@@ -815,6 +853,7 @@ export default function DashboardPage() {
                 value={newStudentName}
                 onChange={(e) => { setNewStudentName(e.target.value); setFormError(""); }}
                 placeholder="e.g. John Doe"
+                autoFocus
                 className="w-full bg-zinc-800 border border-zinc-700 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-lg px-4 py-2.5 text-white placeholder-zinc-500 text-sm outline-none transition-colors"
               />
             </div>
@@ -839,7 +878,7 @@ export default function DashboardPage() {
               </button>
               <button
                 type="submit"
-                disabled={!newStudentName.trim() || !newStudentEmail.trim() || !newStudentId.trim() || formLoading}
+                disabled={!newStudentName.trim() || !newStudentEmail.trim() || !newStudentId.trim() || newStudentId === "Generating…" || formLoading}
                 className="flex-1 bg-amber-700 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
               >
                 {formLoading ? "Adding…" : "Add Student"}
@@ -1310,7 +1349,7 @@ export default function DashboardPage() {
                     <span className="text-xs text-zinc-600 animate-pulse">Loading…</span>
                   )}
                   <button
-                    onClick={() => { setFormError(""); setShowAddStudent(true); }}
+                    onClick={() => openAddStudentModal()}
                     className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 active:scale-95 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 shadow shadow-amber-900/40"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1325,7 +1364,7 @@ export default function DashboardPage() {
                 <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-2xl">
                   No students in <span className="text-zinc-400">{selectedClass}</span> yet.{" "}
                   <button
-                    onClick={() => { setFormError(""); setShowAddStudent(true); }}
+                    onClick={() => openAddStudentModal()}
                     className="text-amber-500 hover:text-amber-400 underline"
                   >
                     Add one
