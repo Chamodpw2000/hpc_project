@@ -9,16 +9,37 @@ SRC = score_analyzer_backend.c
 DB_SRC = db.c
 CONFIG_SRC = config.c
 
+# Controller sources
+CONTROLLER_SRC = controllers/response_helper.c \
+                 controllers/health_controller.c \
+                 controllers/student_controller.c \
+                 controllers/data_controller.c \
+                 controllers/calc_engine.c \
+                 controllers/score_controller.c \
+                 controllers/class_controller.c
+
+CONTROLLER_OBJ = controllers/response_helper.o \
+                 controllers/health_controller.o \
+                 controllers/student_controller.o \
+                 controllers/data_controller.o \
+                 controllers/calc_engine.o \
+                 controllers/score_controller.o \
+                 controllers/class_controller.o
+
 # Local CivetWeb files (self-contained)
 CIVETWEB_LIB = libcivetweb.a
 CIVETWEB_SRC = src/civetweb.c
 
 # MongoDB flags and libraries
 MONGOC_FLAGS = $(shell pkg-config --cflags libmongoc-1.0)
-MONGOC_LIBS = $(shell pkg-config --libs libmongoc-1.0)
+MONGOC_LIBS  = $(shell pkg-config --libs   libmongoc-1.0)
 
-CFLAGS = -I./include $(COPT) -Wall -Wextra -std=c99 $(MONGOC_FLAGS) -D_GNU_SOURCE -fopenmp
-LIBS = -lpthread $(MONGOC_LIBS) -lgomp -lm
+# libcurl for HTTP requests (randomuser.me API)
+CURL_FLAGS = $(shell pkg-config --cflags libcurl)
+CURL_LIBS  = $(shell pkg-config --libs   libcurl)
+
+CFLAGS = -I./include $(COPT) -Wall -Wextra -std=c99 $(MONGOC_FLAGS) $(CURL_FLAGS) -D_GNU_SOURCE -fopenmp
+LIBS   = -lpthread $(MONGOC_LIBS) $(CURL_LIBS) -lgomp -lm
 
 include ./resources/Makefile.in-os
 
@@ -28,8 +49,8 @@ endif
 
 all: $(PROG)
 
-$(PROG): $(CIVETWEB_LIB) db.o config.o $(SRC)
-	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(SRC) db.o config.o $(CIVETWEB_LIB) $(LIBS)
+$(PROG): $(CIVETWEB_LIB) db.o config.o $(CONTROLLER_OBJ) $(SRC)
+	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(SRC) db.o config.o $(CONTROLLER_OBJ) $(CIVETWEB_LIB) $(LIBS)
 
 db.o: $(DB_SRC) include/db.h
 	$(CC) $(CFLAGS) -c $(DB_SRC) -o db.o
@@ -37,13 +58,16 @@ db.o: $(DB_SRC) include/db.h
 config.o: $(CONFIG_SRC) include/config.h
 	$(CC) $(CFLAGS) -c $(CONFIG_SRC) -o config.o
 
+controllers/%.o: controllers/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(CIVETWEB_LIB): $(CIVETWEB_SRC)
 	$(CC) $(CFLAGS) -DNDEBUG -DNO_SSL -c -fPIC $(CIVETWEB_SRC) -o civetweb.o
 	ar cq $(CIVETWEB_LIB) civetweb.o
 	ranlib $(CIVETWEB_LIB)
 
 clean:
-	rm -f $(CIVETWEB_LIB) $(PROG) *.o *.log
+	rm -f $(CIVETWEB_LIB) $(PROG) *.o controllers/*.o *.log
 
 run: $(PROG)
 	./$(PROG)
