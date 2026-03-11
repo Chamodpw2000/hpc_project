@@ -1199,14 +1199,8 @@ export default function DashboardPage() {
       <nav className="sticky top-0 z-40 w-full bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
           {/* Brand */}
-          <div className="flex items-center gap-2.5 mr-4">
-            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow shadow-indigo-900/40">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <span className="text-base font-bold tracking-tight whitespace-nowrap">Score Analyzer</span>
+          <div className="flex items-center mr-4">
+            <img src="/swiftscore-logo.svg" alt="SwiftScore" className="h-10 w-auto" />
           </div>
 
           {/* Add Class */}
@@ -1482,7 +1476,7 @@ export default function DashboardPage() {
 
         {/* Footer */}
         <div className="text-center text-xs text-zinc-700 mt-16">
-          OpenMP Score Analyzer &mdash; HPC Project &copy; 2026
+          Developed by <span className="text-zinc-500 font-semibold">Zyberloop</span> &copy; 2026
         </div>
       </div>
     </div>
