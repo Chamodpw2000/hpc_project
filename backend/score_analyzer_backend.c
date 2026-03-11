@@ -40,6 +40,7 @@
 #define CALC_SERIAL_URI "/api/calculate/serial"
 #define CALC_PARALLEL_URI "/api/calculate/parallel"
 #define CALC_COMPARE_URI "/api/calculate/compare"
+#define CALC_POSIX_URI "/api/calculate/posix"
 
 int exitNow = 0;
 static unsigned requestCounter = 0;
@@ -685,6 +686,212 @@ static calc_result_t run_parallel(const double *scores, int n)
     return r;
 }
 
+/* --- POSIX (pthreads) calculation ------------------------------------- */
+
+#include <pthread.h>
+
+typedef struct {
+    const double *scores;
+    int start;
+    int end;
+    double mean;      /* input for phase 2 */
+    
+    /* outputs */
+    double p_sum;
+    double p_min;
+    double p_max;
+    
+    double var_sum;
+    int gA;
+    int gB;
+    int gC;
+    int gD;
+    int gF;
+    
+    double local_dummy;
+} posix_worker_data_t;
+
+/* Phase 1: Sum, min, max */
+static void *posix_calc_worker_phase1(void *arg) {
+    posix_worker_data_t *d = (posix_worker_data_t *)arg;
+    
+    if (d->start < d->end) {
+        d->p_sum = 0.0;
+        d->p_min = d->scores[d->start];
+        d->p_max = d->scores[d->start];
+        
+        for (int i = d->start; i < d->end; i++) {
+            d->p_sum += d->scores[i];
+            if (d->scores[i] < d->p_min) d->p_min = d->scores[i];
+            if (d->scores[i] > d->p_max) d->p_max = d->scores[i];
+        }
+    }
+    return NULL;
+}
+
+/* Phase 2: Variance, grades, intensive loop */
+static void *posix_calc_worker_phase2(void *arg) {
+    posix_worker_data_t *d = (posix_worker_data_t *)arg;
+    
+    d->var_sum = 0.0;
+    d->gA = 0; d->gB = 0; d->gC = 0; d->gD = 0; d->gF = 0;
+    d->local_dummy = 0.0;
+    
+    for (int i = d->start; i < d->end; i++) {
+        double diff = d->scores[i] - d->mean;
+        d->var_sum += diff * diff;
+
+        if (d->scores[i] >= 90) d->gA++;
+        else if (d->scores[i] >= 80) d->gB++;
+        else if (d->scores[i] >= 70) d->gC++;
+        else if (d->scores[i] >= 60) d->gD++;
+        else d->gF++;
+    }
+    
+    /* Intensive extra work - parallelised */
+    for (int rep = 0; rep < 50; rep++) {
+        for (int i = d->start; i < d->end; i++) {
+            d->local_dummy += sin(d->scores[i]) * cos(d->scores[i]);
+        }
+    }
+    
+    return NULL;
+}
+
+/* POSIX merge-sort thread struct */
+typedef struct {
+    double *arr;
+    int l;
+    int r;
+    int depth;
+} posix_sort_data_t;
+
+static void *posix_merge_sort_thread(void *arg);
+
+static void posix_merge_sort(double *arr, int l, int r, int depth) {
+    if (l >= r) return;
+    int m = l + (r - l) / 2;
+
+    if (depth < 4) {
+        pthread_t t1, t2;
+        posix_sort_data_t d1 = {arr, l, m, depth + 1};
+        posix_sort_data_t d2 = {arr, m + 1, r, depth + 1};
+        
+        pthread_create(&t1, NULL, posix_merge_sort_thread, &d1);
+        pthread_create(&t2, NULL, posix_merge_sort_thread, &d2);
+        
+        pthread_join(t1, NULL);
+        pthread_join(t2, NULL);
+    } else {
+        posix_merge_sort(arr, l, m, depth + 1);
+        posix_merge_sort(arr, m + 1, r, depth + 1);
+    }
+    merge(arr, l, m, r);
+}
+
+static void *posix_merge_sort_thread(void *arg) {
+    posix_sort_data_t *d = (posix_sort_data_t *)arg;
+    posix_merge_sort(d->arr, d->l, d->r, d->depth);
+    return NULL;
+}
+
+static calc_result_t run_posix(const double *scores, int n)
+{
+    calc_result_t r;
+    memset(&r, 0, sizeof(r));
+    r.count = n;
+    
+    /* Determine reasonable thread count */
+    int num_threads = omp_get_max_threads();
+    if (num_threads <= 0) num_threads = 4;
+    r.threads_used = num_threads;
+
+    double t_start = omp_get_wtime();
+    
+    pthread_t *threads = (pthread_t*)malloc(sizeof(pthread_t) * num_threads);
+    posix_worker_data_t *tdata = (posix_worker_data_t*)malloc(sizeof(posix_worker_data_t) * num_threads);
+
+    /* Phase 1: sum, min, max */
+    int chunk = n / num_threads;
+    for (int i = 0; i < num_threads; i++) {
+        tdata[i].scores = scores;
+        tdata[i].start = i * chunk;
+        tdata[i].end = (i == num_threads - 1) ? n : (i + 1) * chunk;
+        pthread_create(&threads[i], NULL, posix_calc_worker_phase1, &tdata[i]);
+    }
+    
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    /* Aggregate Phase 1 */
+    r.min = tdata[0].p_min;
+    r.max = tdata[0].p_max;
+    r.sum = 0.0;
+    for (int i = 0; i < num_threads; i++) {
+        r.sum += tdata[i].p_sum;
+        if (tdata[i].p_min < r.min) r.min = tdata[i].p_min;
+        if (tdata[i].p_max > r.max) r.max = tdata[i].p_max;
+    }
+    r.mean = r.sum / n;
+
+    /* Phase 2: variance, grades, dummy work */
+    for (int i = 0; i < num_threads; i++) {
+        tdata[i].mean = r.mean;
+        pthread_create(&threads[i], NULL, posix_calc_worker_phase2, &tdata[i]);
+    }
+    
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    /* Aggregate Phase 2 */
+    double total_var_sum = 0.0;
+    int gA = 0, gB = 0, gC = 0, gD = 0, gF = 0;
+    volatile double dummy = 0.0;
+    
+    for (int i = 0; i < num_threads; i++) {
+        total_var_sum += tdata[i].var_sum;
+        gA += tdata[i].gA;
+        gB += tdata[i].gB;
+        gC += tdata[i].gC;
+        gD += tdata[i].gD;
+        gF += tdata[i].gF;
+        dummy += tdata[i].local_dummy;
+    }
+    (void)dummy;
+    
+    r.variance = total_var_sum / n;
+    r.stddev = sqrt(r.variance);
+    r.grade_A = gA; r.grade_B = gB; r.grade_C = gC;
+    r.grade_D = gD; r.grade_F = gF;
+    
+    free(threads);
+    free(tdata);
+
+    /* POSIX merge-sort for median */
+    double *sorted = (double*)malloc(sizeof(double) * n);
+    memcpy(sorted, scores, sizeof(double) * n);
+
+    double sort_start = omp_get_wtime();
+    
+    pthread_t sort_thread;
+    posix_sort_data_t sdata = {sorted, 0, n - 1, 0};
+    pthread_create(&sort_thread, NULL, posix_merge_sort_thread, &sdata);
+    pthread_join(sort_thread, NULL);
+    
+    r.sort_time_ms = (omp_get_wtime() - sort_start) * 1000.0;
+
+    if (n % 2 == 0)
+        r.median = (sorted[n/2 - 1] + sorted[n/2]) / 2.0;
+    else
+        r.median = sorted[n/2];
+    free(sorted);
+
+    r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
+    return r;
+}
+
 /* Format a calc_result_t into a JSON string */
 static void format_result_json(char *buf, size_t sz, const calc_result_t *r, const char *label)
 {
@@ -831,6 +1038,34 @@ CalcParallelHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Parallel (OpenMP) calculation completed", data);
 }
 
+/* ---- API: GET /api/calculate/posix  ----- */
+static int
+CalcPosixHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    int count = 0;
+    double *scores = db_get_scores_array(global_db, &count);
+    if (!scores || count == 0) {
+        if (scores) free(scores);
+        return SendErrorResponse(conn, 404, "No scores in database. POST /api/seed first.");
+    }
+
+    calc_result_t r = run_posix(scores, count);
+    free(scores);
+
+    char data[2048];
+    format_result_json(data, sizeof(data), &r, "posix");
+
+    return SendJSONResponse(conn, "success", "POSIX (pthreads) calculation completed", data);
+}
+
 /* ---- API: GET /api/calculate/compare  ----- */
 static int
 CalcCompareHandler(struct mg_connection *conn, void *cbdata)
@@ -938,6 +1173,9 @@ ApiHandler(struct mg_connection *conn, void *cbdata)
     else if (strcmp(url, "/api/calculate/parallel") == 0) {
         return CalcParallelHandler(conn, cbdata);
     }
+    else if (strcmp(url, "/api/calculate/posix") == 0) {
+        return CalcPosixHandler(conn, cbdata);
+    }
     else if (strcmp(url, "/api/calculate/compare") == 0) {
         return CalcCompareHandler(conn, cbdata);
     }
@@ -1016,6 +1254,7 @@ main(int argc, char *argv[])
     mg_set_request_handler(ctx, SEED_URI, SeedHandler, 0);
     mg_set_request_handler(ctx, CALC_SERIAL_URI, CalcSerialHandler, 0);
     mg_set_request_handler(ctx, CALC_PARALLEL_URI, CalcParallelHandler, 0);
+    mg_set_request_handler(ctx, CALC_POSIX_URI, CalcPosixHandler, 0);
     mg_set_request_handler(ctx, CALC_COMPARE_URI, CalcCompareHandler, 0);
     mg_set_request_handler(ctx, HEALTH_URI, HealthHandler, 0);
     mg_set_request_handler(ctx, API_URI, ApiHandler, 0);
@@ -1039,6 +1278,7 @@ main(int argc, char *argv[])
     printf("  Seed Data:       %s%s (POST)\n", HOST_INFO, SEED_URI);
     printf("  Serial Calc:     %s%s (GET)\n", HOST_INFO, CALC_SERIAL_URI);
     printf("  Parallel Calc:   %s%s (GET)\n", HOST_INFO, CALC_PARALLEL_URI);
+    printf("  POSIX Calc:      %s%s (GET)\n", HOST_INFO, CALC_POSIX_URI);
     printf("  Compare:         %s%s (GET)\n", HOST_INFO, CALC_COMPARE_URI);
     printf("  Shutdown:        %s%s\n", HOST_INFO, EXIT_URI);
     printf("\n  OpenMP threads available: %d\n", omp_get_max_threads());

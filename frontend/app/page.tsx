@@ -128,6 +128,7 @@ export default function Home() {
   const [compareData, setCompareData] = useState<CompareData | null>(null);
   const [serialOnly, setSerialOnly] = useState<CalcResult | null>(null);
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
+  const [posixOnly, setPosixOnly] = useState<CalcResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
   const [scoresPerStudent, setScoresPerStudent] = useState(10);
@@ -192,6 +193,7 @@ export default function Home() {
       setCompareData(null);
       setSerialOnly(null);
       setParallelOnly(null);
+      setPosixOnly(null);
     } catch (e) {
       setError(`Seed failed: ${e}`);
     }
@@ -220,6 +222,19 @@ export default function Home() {
       setParallelOnly(json.data);
     } catch (e) {
       setError(`Parallel calc failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
+  async function runPosix() {
+    setLoading("posix");
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/calculate/posix`);
+      const json = await res.json();
+      setPosixOnly(json.data);
+    } catch (e) {
+      setError(`POSIX calc failed: ${e}`);
     }
     setLoading(null);
   }
@@ -397,6 +412,13 @@ export default function Home() {
               {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
             </button>
             <button
+              onClick={runPosix}
+              disabled={loading !== null}
+              className="bg-pink-600 hover:bg-pink-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "posix" ? "Running..." : "Run POSIX (pthreads)"}
+            </button>
+            <button
               onClick={runCompare}
               disabled={loading !== null}
               className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
@@ -413,10 +435,11 @@ export default function Home() {
         )}
 
         {/* Individual Results */}
-        {(serialOnly || parallelOnly) && !compareData && (
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+        {(serialOnly || parallelOnly || posixOnly) && !compareData && (
+          <div className="grid md:grid-cols-3 gap-6 mb-6">
             {serialOnly && <ResultPanel result={serialOnly} color="border-blue-700" />}
             {parallelOnly && <ResultPanel result={parallelOnly} color="border-purple-700" />}
+            {posixOnly && <ResultPanel result={posixOnly} color="border-pink-700" />}
           </div>
         )}
 
