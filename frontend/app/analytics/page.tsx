@@ -51,14 +51,6 @@ interface CompareData {
 interface SeedData {
   students_created: number;
   scores_created: number;
-  scores_per_student: number;
-}
-
-interface Student {
-  _id: string;
-  student_id: string;
-  name: string;
-  email: string;
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -133,53 +125,6 @@ export default function AnalyticsPage() {
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
-  const [scoresPerStudent, setScoresPerStudent] = useState(10);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [studentName, setStudentName] = useState("");
-  const [studentEmail, setStudentEmail] = useState("");
-  const [studentStudentId, setStudentStudentId] = useState("");
-  const [studentsLoading, setStudentsLoading] = useState(false);
-
-  async function fetchStudents() {
-    setStudentsLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API}/api/students`);
-      const json = await res.json();
-      setStudents(json.data || []);
-    } catch (e) {
-      setError(`Fetch students failed: ${e}`);
-    }
-    setStudentsLoading(false);
-  }
-
-  async function createStudent() {
-    setError(null);
-    try {
-      const res = await fetch(`${API}/api/students`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ student_id: studentStudentId, name: studentName, email: studentEmail }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setStudentName("");
-      setStudentEmail("");
-      setStudentStudentId("");
-      await fetchStudents();
-    } catch (e) {
-      setError(`Create student failed: ${e}`);
-    }
-  }
-
-  async function deleteStudent(id: string) {
-    setError(null);
-    try {
-      await fetch(`${API}/api/students/${id}`, { method: "DELETE" });
-      await fetchStudents();
-    } catch (e) {
-      setError(`Delete student failed: ${e}`);
-    }
-  }
 
   async function seedData() {
     setLoading("seed");
@@ -188,7 +133,7 @@ export default function AnalyticsPage() {
       const res = await fetch(`${API}/api/seed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num_students: numStudents, scores_per_student: scoresPerStudent }),
+        body: JSON.stringify({ num_students: numStudents }),
       });
       const json = await res.json();
       setSeedResult(json.data);
@@ -248,16 +193,29 @@ export default function AnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="text-center flex-1">
-            <h1 className="text-3xl font-bold mb-2">OpenMP Score Analyzer</h1>
-            <p className="text-zinc-400">Serial vs Parallel Performance Comparison using MongoDB Data</p>
+      {/* ── Navbar ── */}
+      <nav className="sticky top-0 z-40 w-full bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+          {/* Brand */}
+          <div className="flex items-center mr-4">
+            <img src="/swiftscore-logo.svg" alt="SwiftScore" className="h-10 w-auto" />
           </div>
+
+          {/* Back to Classes */}
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-1.5 bg-zinc-700 hover:bg-zinc-600 active:scale-95 px-3.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Classes
+          </button>
+
+          {/* Logout */}
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 text-zinc-500 hover:text-red-400 text-sm transition-colors border border-zinc-800 hover:border-red-900 px-3 py-1.5 rounded-lg"
+            className="flex items-center gap-1.5 text-zinc-500 hover:text-red-400 text-sm transition-colors border border-zinc-800 hover:border-red-900 px-3 py-2 rounded-lg ml-auto"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -266,122 +224,28 @@ export default function AnalyticsPage() {
             Logout
           </button>
         </div>
+      </nav>
 
-        {/* Students Management */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Students Management</h2>
-            <button
-              onClick={fetchStudents}
-              disabled={studentsLoading}
-              className="bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 px-3 py-1.5 rounded text-sm transition-colors"
-            >
-              {studentsLoading ? "Loading..." : "Refresh"}
-            </button>
-          </div>
-
-          {/* Add Student Form */}
-          <div className="flex flex-wrap gap-3 items-end mb-4">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Student ID</label>
-              <input
-                type="text"
-                value={studentStudentId}
-                onChange={(e) => setStudentStudentId(e.target.value)}
-                placeholder="e.g. S001"
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Name</label>
-              <input
-                type="text"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                placeholder="Full name"
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-40 text-white text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Email</label>
-              <input
-                type="email"
-                value={studentEmail}
-                onChange={(e) => setStudentEmail(e.target.value)}
-                placeholder="email@example.com"
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-48 text-white text-sm"
-              />
-            </div>
-            <button
-              onClick={createStudent}
-              disabled={!studentName || !studentEmail || !studentStudentId}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 rounded font-semibold text-sm transition-colors"
-            >
-              Add Student
-            </button>
-          </div>
-
-          {/* Students Table */}
-          {students.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-zinc-400 text-xs uppercase border-b border-zinc-800">
-                    <th className="text-left py-2 pr-4">Student ID</th>
-                    <th className="text-left py-2 pr-4">Name</th>
-                    <th className="text-left py-2 pr-4">Email</th>
-                    <th className="text-right py-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((s) => (
-                    <tr key={s._id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                      <td className="py-2 pr-4 font-mono text-indigo-400">{s.student_id}</td>
-                      <td className="py-2 pr-4 text-white">{s.name}</td>
-                      <td className="py-2 pr-4 text-zinc-400">{s.email}</td>
-                      <td className="py-2 text-right">
-                        <button
-                          onClick={() => deleteStudent(s._id)}
-                          className="text-red-400 hover:text-red-300 text-xs font-mono transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-zinc-500 text-sm text-center py-4">
-              No students loaded. Click Refresh to fetch from database.
-            </div>
-          )}
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Page heading */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold mb-2">SwiftScore</h1>
+          <p className="text-zinc-400">Serial vs Parallel Performance Comparison using MongoDB Data</p>
         </div>
 
         {/* Seed Controls */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">1. Seed Database with Test Data</h2>
+          <p className="text-xs text-zinc-500 mb-4">Each student is assigned a class (round-robin) and gets one score per subject in that class. Names and emails are fetched from randomuser.me.</p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Students</label>
+              <label className="block text-xs text-zinc-400 mb-1">Number of Students</label>
               <input
                 type="number"
                 title="Number of students"
                 placeholder="100"
                 value={numStudents}
                 onChange={(e) => setNumStudents(Number(e.target.value))}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Scores/Student</label>
-              <input
-                type="number"
-                title="Scores per student"
-                placeholder="10"
-                value={scoresPerStudent}
-                onChange={(e) => setScoresPerStudent(Number(e.target.value))}
                 className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono"
               />
             </div>
@@ -392,9 +256,6 @@ export default function AnalyticsPage() {
             >
               {loading === "seed" ? "Seeding..." : "Seed Data"}
             </button>
-            <div className="text-xs text-zinc-500 self-center">
-              Total scores: {numStudents * scoresPerStudent}
-            </div>
           </div>
           {seedResult && (
             <div className="mt-3 text-sm text-emerald-400 font-mono">

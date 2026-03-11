@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" width="200" height="60">
+  <defs>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e2e8f0"/>
+      <stop offset="100%" style="stop-color:#a5b4fc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon background rounded square -->
+  <rect x="4" y="6" width="48" height="48" rx="12" fill="url(#iconGrad)" />
+
+  <!-- Lightning bolt (swift) -->
+  <polygon points="30,14 20,34 28,34 26,50 38,28 29,28" fill="white" opacity="0.95"/>
+
+  <!-- Bar chart lines (score) -->
+  <rect x="14" y="38" width="5" height="8" rx="1.5" fill="white" opacity="0.5"/>
+  <rect x="21" y="32" width="5" height="14" rx="1.5" fill="white" opacity="0.5"/>
+
+  <!-- Text: Swift -->
+  <text x="62" y="34" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="url(#textGrad)" letter-spacing="-0.5">Swift</text>
+  <!-- Text: Score -->
+  <text x="62" y="52" font-family="'Segoe UI', Arial, sans-serif" font-size="13" font-weight="500" fill="#6366f1" letter-spacing="3">SCORE</text>
+</svg>

@@ -27,14 +27,13 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     if (strcmp(ri->request_method, "POST") != 0)
         return SendErrorResponse(conn, 405,
             "Only POST method supported. "
-            "Send POST with optional JSON {num_students, scores_per_student}");
+            "Send POST with optional JSON {num_students}");
 
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
     /* Defaults */
-    int num_students       = 100;
-    int scores_per_student = 10;
+    int num_students = 100;
 
     /* Parse optional request body */
     char buffer[512];
@@ -46,24 +45,18 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
             p = strchr(p, ':');
             if (p) num_students = atoi(p + 1);
         }
-        if ((p = strstr(buffer, "\"scores_per_student\"")) != NULL) {
-            p = strchr(p, ':');
-            if (p) scores_per_student = atoi(p + 1);
-        }
     }
-    if (num_students < 1)       num_students       = 100;
-    if (scores_per_student < 1) scores_per_student = 10;
+    if (num_students < 1) num_students = 100;
 
-    int total = db_seed_dummy_data(global_db, num_students, scores_per_student);
+    int total = db_seed_dummy_data(global_db, num_students, 0);
 
     char data[512];
     snprintf(data, sizeof(data),
         "{\n"
         "    \"students_created\": %d,\n"
-        "    \"scores_created\": %d,\n"
-        "    \"scores_per_student\": %d\n"
+        "    \"scores_created\": %d\n"
         "  }",
-        num_students, total, scores_per_student);
+        num_students, total);
 
     return SendJSONResponse(conn, "success", "Dummy data seeded successfully", data);
 }

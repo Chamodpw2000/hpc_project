@@ -4,10 +4,22 @@ const BACKEND = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8090";
 
 export async function GET(req: NextRequest) {
   try {
-    const cls = req.nextUrl.searchParams.get("class");
-    const url = cls
-      ? `${BACKEND}/api/students?class=${encodeURIComponent(cls)}`
-      : `${BACKEND}/api/students`;
+    const cls    = req.nextUrl.searchParams.get("class");
+    const page   = req.nextUrl.searchParams.get("page");
+    const limit  = req.nextUrl.searchParams.get("limit");
+    const search = req.nextUrl.searchParams.get("search");
+
+    let url: string;
+    if (cls) {
+      const params = new URLSearchParams({ class: cls });
+      if (page)   params.set("page",   page);
+      if (limit)  params.set("limit",  limit);
+      if (search) params.set("search", search);
+      url = `${BACKEND}/api/students?${params.toString()}`;
+    } else {
+      url = `${BACKEND}/api/students`;
+    }
+
     const res = await fetch(url, { cache: "no-store" });
     const json = await res.json();
     return NextResponse.json(json, { status: res.status });

@@ -38,6 +38,8 @@ int db_create_student(db_connection_t *db, const char *name, const char *email, 
 int db_create_student_with_class(db_connection_t *db, const char *name, const char *email, const char *student_id, const char *class_name);
 char* db_get_all_students(db_connection_t *db);
 char* db_get_students_by_class(db_connection_t *db, const char *class_name);
+char* db_get_students_by_class_paginated(db_connection_t *db, const char *class_name, int page, int limit, const char *search);
+int   db_count_students_by_class(db_connection_t *db, const char *class_name, const char *search);
 char* db_get_student_by_id(db_connection_t *db, const char *student_id);
 int db_update_student(db_connection_t *db, const char *student_id, const char *name, const char *email);
 int db_delete_student(db_connection_t *db, const char *student_id);

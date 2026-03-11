@@ -49,13 +49,9 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         {/* Logo / Title */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-linear-to-br from-indigo-600 to-purple-600 mb-4 shadow-lg shadow-indigo-900/40">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+          <div className="flex justify-center mb-4">
+            <img src="/swiftscore-logo.svg" alt="SwiftScore" className="h-14 w-auto" />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">OpenMP Score Analyzer</h1>
           <p className="text-zinc-500 text-sm mt-1">Sign in to access the dashboard</p>
         </div>
 

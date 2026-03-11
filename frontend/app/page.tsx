@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 /* ── Types ── */
 interface ClassItem { name: string }
@@ -51,6 +51,16 @@ export default function DashboardPage() {
   const [loadingClasses, setLoadingClasses] = useState(true);
   const [loadingSubjects, setLoadingSubjects] = useState(false); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [loadingStudents, setLoadingStudents] = useState(false);
+
+  /* ── Pagination state ── */
+  const [currentPage, setCurrentPage]     = useState(1);
+  const [totalPages, setTotalPages]       = useState(1);
+  const [totalStudents, setTotalStudents] = useState(0);
+  const STUDENTS_PER_PAGE = 20;
+
+  /* ── Search state ── */
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── UI state ── */
   const [selectedClass, setSelectedClass] = useState<string>("");
@@ -173,15 +183,31 @@ export default function DashboardPage() {
     }
   }, []);
 
-  /* ── Fetch students for a class ── */
-  const fetchStudents = useCallback(async (cls: string) => {
-    if (!cls) { setStudents([]); return; }
+  /* ── Fetch students for a class (paginated + search) ── */
+  const fetchStudents = useCallback(async (cls: string, page: number = 1, search: string = "") => {
+    if (!cls) { setStudents([]); setTotalPages(1); setTotalStudents(0); return; }
     setLoadingStudents(true);
     try {
-      const res  = await fetch(`/api/students?class=${encodeURIComponent(cls)}`, { cache: "no-store" });
+      const params = new URLSearchParams({
+        class: cls,
+        page: String(page),
+        limit: String(STUDENTS_PER_PAGE),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      const res  = await fetch(`/api/students?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) { setStudents([]); return; }
       const json = await res.json();
       setStudents(json.data ?? []);
+      if (json.pagination) {
+        setCurrentPage(json.pagination.page ?? 1);
+        setTotalPages(json.pagination.total_pages ?? 1);
+        setTotalStudents(json.pagination.total ?? 0);
+      } else {
+        const data = json.data ?? [];
+        setTotalStudents(data.length);
+        setTotalPages(1);
+        setCurrentPage(1);
+      }
     } catch {
       setStudents([]);
     } finally {
@@ -193,9 +219,22 @@ export default function DashboardPage() {
   useEffect(() => {
     if (selectedClass) {
       fetchSubjects(selectedClass);
-      fetchStudents(selectedClass);
+      setSearchQuery("");
+      fetchStudents(selectedClass, 1, "");
     }
   }, [selectedClass, fetchSubjects, fetchStudents]);
+
+  /* Debounced search — triggers 400ms after user stops typing */
+  useEffect(() => {
+    if (!selectedClass) return;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setCurrentPage(1);
+      fetchStudents(selectedClass, 1, searchQuery);
+    }, 400);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   /* ── Keep subjectClass dropdown in sync when classes load ── */
   useEffect(() => {
@@ -373,7 +412,7 @@ export default function DashboardPage() {
       });
       const json = await res.json();
       if (res.ok && json.success !== false) {
-        await fetchStudents(selectedClass);
+        await fetchStudents(selectedClass, currentPage, searchQuery);
         setEditingStudentId(null);
         setEditStudentName("");
         setEditStudentEmail("");
@@ -392,7 +431,7 @@ export default function DashboardPage() {
     if (!confirm(`Delete student "${studentName}" (${studentId})?`)) return;
     try {
       await fetch(`/api/students/${encodeURIComponent(studentId)}`, { method: "DELETE" });
-      await fetchStudents(selectedClass);
+      await fetchStudents(selectedClass, currentPage, searchQuery);
     } catch { /* ignore */ }
   }
 
@@ -570,7 +609,7 @@ export default function DashboardPage() {
       });
       const json = await res.json();
       if (res.ok && json.success !== false) {
-        await fetchStudents(selectedClass);
+        await fetchStudents(selectedClass, currentPage, searchQuery);
         setNewStudentName("");
         setNewStudentEmail("");
         setNewStudentId("");
@@ -1199,14 +1238,8 @@ export default function DashboardPage() {
       <nav className="sticky top-0 z-40 w-full bg-zinc-900/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
           {/* Brand */}
-          <div className="flex items-center gap-2.5 mr-4">
-            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow shadow-indigo-900/40">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <span className="text-base font-bold tracking-tight whitespace-nowrap">Score Analyzer</span>
+          <div className="flex items-center mr-4">
+            <img src="/swiftscore-logo.svg" alt="SwiftScore" className="h-10 w-auto" />
           </div>
 
           {/* Add Class */}
@@ -1341,7 +1374,7 @@ export default function DashboardPage() {
                 <h2 className="text-base font-semibold text-zinc-300">
                   Students — <span className="text-indigo-400">{selectedClass}</span>
                   {!loadingStudents && (
-                    <span className="text-zinc-500 text-xs font-normal ml-2">({students.length})</span>
+                    <span className="text-zinc-500 text-xs font-normal ml-2">({totalStudents})</span>
                   )}
                 </h2>
                 <div className="flex items-center gap-3">
@@ -1360,15 +1393,45 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* Search bar */}
+              <div className="relative mb-4">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by name, email or student ID…"
+                  className="w-full bg-zinc-900 border border-zinc-800 focus:border-indigo-500 rounded-xl pl-9 pr-9 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none transition-colors"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
               {!loadingStudents && students.length === 0 ? (
                 <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-2xl">
-                  No students in <span className="text-zinc-400">{selectedClass}</span> yet.{" "}
-                  <button
-                    onClick={() => openAddStudentModal()}
-                    className="text-amber-500 hover:text-amber-400 underline"
-                  >
-                    Add one
-                  </button>
+                  {searchQuery ? (
+                    <>No students matching &ldquo;<span className="text-zinc-400">{searchQuery}</span>&rdquo;</>
+                  ) : (
+                    <>
+                      No students in <span className="text-zinc-400">{selectedClass}</span> yet.{" "}
+                      <button
+                        onClick={() => openAddStudentModal()}
+                        className="text-amber-500 hover:text-amber-400 underline"
+                      >
+                        Add one
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : !loadingStudents ? (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
@@ -1476,13 +1539,62 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ) : null}
+
+              {/* Pagination controls */}
+              {!loadingStudents && totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 px-1">
+                  <span className="text-xs text-zinc-500">
+                    Page {currentPage} of {totalPages} &middot; {totalStudents} students
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      disabled={currentPage <= 1}
+                      onClick={() => { setCurrentPage(currentPage - 1); fetchStudents(selectedClass, currentPage - 1, searchQuery); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Previous
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                      .reduce<(number | string)[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("...");
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, idx) =>
+                        typeof p === "string" ? (
+                          <span key={`ellipsis-${idx}`} className="px-1.5 text-zinc-600 text-xs">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            onClick={() => { if (p !== currentPage) { setCurrentPage(p); fetchStudents(selectedClass, p, searchQuery); } }}
+                            className={`min-w-[32px] px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              p === currentPage
+                                ? "bg-indigo-600 text-white"
+                                : "bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                    <button
+                      disabled={currentPage >= totalPages}
+                      onClick={() => { setCurrentPage(currentPage + 1); fetchStudents(selectedClass, currentPage + 1, searchQuery); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         )}
 
         {/* Footer */}
         <div className="text-center text-xs text-zinc-700 mt-16">
-          OpenMP Score Analyzer &mdash; HPC Project &copy; 2026
+          Developed by <span className="text-zinc-500 font-semibold">Zyberloop</span> &copy; 2026
         </div>
       </div>
     </div>
