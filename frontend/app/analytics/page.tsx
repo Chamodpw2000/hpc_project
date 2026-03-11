@@ -51,7 +51,6 @@ interface CompareData {
 interface SeedData {
   students_created: number;
   scores_created: number;
-  scores_per_student: number;
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -126,7 +125,6 @@ export default function AnalyticsPage() {
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
-  const [scoresPerStudent, setScoresPerStudent] = useState(10);
 
   async function seedData() {
     setLoading("seed");
@@ -135,7 +133,7 @@ export default function AnalyticsPage() {
       const res = await fetch(`${API}/api/seed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num_students: numStudents, scores_per_student: scoresPerStudent }),
+        body: JSON.stringify({ num_students: numStudents }),
       });
       const json = await res.json();
       setSeedResult(json.data);
@@ -238,26 +236,16 @@ export default function AnalyticsPage() {
         {/* Seed Controls */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">1. Seed Database with Test Data</h2>
+          <p className="text-xs text-zinc-500 mb-4">Each student is assigned a class (round-robin) and gets one score per subject in that class. Names and emails are fetched from randomuser.me.</p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Students</label>
+              <label className="block text-xs text-zinc-400 mb-1">Number of Students</label>
               <input
                 type="number"
                 title="Number of students"
                 placeholder="100"
                 value={numStudents}
                 onChange={(e) => setNumStudents(Number(e.target.value))}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Scores/Student</label>
-              <input
-                type="number"
-                title="Scores per student"
-                placeholder="10"
-                value={scoresPerStudent}
-                onChange={(e) => setScoresPerStudent(Number(e.target.value))}
                 className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono"
               />
             </div>
@@ -268,9 +256,6 @@ export default function AnalyticsPage() {
             >
               {loading === "seed" ? "Seeding..." : "Seed Data"}
             </button>
-            <div className="text-xs text-zinc-500 self-center">
-              Total scores: {numStudents * scoresPerStudent}
-            </div>
           </div>
           {seedResult && (
             <div className="mt-3 text-sm text-emerald-400 font-mono">

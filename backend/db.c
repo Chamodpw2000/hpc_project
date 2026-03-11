@@ -12,7 +12,10 @@
 #include <sys/socket.h>
 #include <math.h>
 #include <time.h>
+#include <sys/time.h>
 #include <pthread.h>
+#include <omp.h>
+#include <curl/curl.h>
 
 /*
  * mongoc_client_t is NOT thread-safe.  CivetWeb dispatches each request on a
@@ -588,6 +591,134 @@ char* db_get_all_scores(db_connection_t *db)
     return result;
 }
 
+/* ── libcurl write callback for HTTP responses ── */
+struct curl_buf {
+    char  *data;
+    size_t len;
+    size_t cap;
+};
+
+static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
+{
+    size_t bytes = size * nmemb;
+    struct curl_buf *buf = (struct curl_buf *)userdata;
+    if (buf->len + bytes + 1 > buf->cap) {
+        size_t new_cap = (buf->cap + bytes + 1) * 2;
+        char *tmp = (char *)realloc(buf->data, new_cap);
+        if (!tmp) return 0;
+        buf->data = tmp;
+        buf->cap  = new_cap;
+    }
+    memcpy(buf->data + buf->len, ptr, bytes);
+    buf->len += bytes;
+    buf->data[buf->len] = '\0';
+    return bytes;
+}
+
+/* ── Batch-fetch multiple random users in one HTTP request ──
+ * randomuser.me supports ?results=N (up to 5000).
+ * Parses the JSON array and fills names[]/emails[] arrays.
+ * Returns number of users actually parsed (may be < count on partial failure).
+ */
+static int fetch_random_users_batch(int count,
+                                    char names[][256],
+                                    char emails[][256])
+{
+    if (count <= 0) return 0;
+    if (count > 5000) count = 5000; /* API limit */
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return 0;
+
+    char url[128];
+    snprintf(url, sizeof(url), "https://randomuser.me/api/?results=%d", count);
+
+    size_t init_cap = (size_t)count * 2048;
+    if (init_cap < 8192) init_cap = 8192;
+    struct curl_buf buf = { .data = (char *)malloc(init_cap), .len = 0, .cap = init_cap };
+    if (!buf.data) { curl_easy_cleanup(curl); return 0; }
+    buf.data[0] = '\0';
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK) { free(buf.data); return 0; }
+
+    /* Parse the results array.  Each user block has "name":{"first":"...","last":"..."}
+     * and "email":"...".  We walk through the JSON string looking for repeated patterns. */
+    int parsed = 0;
+    char *cursor = buf.data;
+
+    while (parsed < count) {
+        /* Find next "name" object */
+        char *name_obj = strstr(cursor, "\"name\"");
+        if (!name_obj) break;
+
+        char first[128] = "", last[128] = "", raw_email[256] = "";
+        char *p;
+
+        /* Extract "first" */
+        p = strstr(name_obj, "\"first\"");
+        if (p) {
+            p = strchr(p + 7, ':');
+            if (p) { p = strchr(p, '"'); if (p) { p++; char *end = strchr(p, '"');
+                if (end) { size_t n = (size_t)(end - p); if (n >= sizeof(first)) n = sizeof(first)-1; memcpy(first, p, n); first[n] = '\0'; }
+            }}
+        }
+
+        /* Extract "last" */
+        p = strstr(name_obj, "\"last\"");
+        if (p) {
+            p = strchr(p + 6, ':');
+            if (p) { p = strchr(p, '"'); if (p) { p++; char *end = strchr(p, '"');
+                if (end) { size_t n = (size_t)(end - p); if (n >= sizeof(last)) n = sizeof(last)-1; memcpy(last, p, n); last[n] = '\0'; cursor = end + 1; }
+            }}
+        }
+
+        /* Extract "email" – find the next "email" after the name object */
+        p = strstr(cursor, "\"email\"");
+        if (p) {
+            p = strchr(p + 7, ':');
+            if (p) { p = strchr(p, '"'); if (p) { p++; char *end = strchr(p, '"');
+                if (end) { size_t n = (size_t)(end - p); if (n >= sizeof(raw_email)) n = sizeof(raw_email)-1; memcpy(raw_email, p, n); raw_email[n] = '\0'; cursor = end + 1; }
+            }}
+        }
+
+        if (first[0] == '\0' || raw_email[0] == '\0') {
+            /* Skip malformed entry, advance cursor past this block */
+            cursor = name_obj + 6;
+            continue;
+        }
+
+        /* Build full name */
+        snprintf(names[parsed], 256, "%s %s", first, last);
+
+        /* Make email unique: add index + microsecond digits before '@' */
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        int ts_digits = (int)((tv.tv_usec + parsed) % 10000);
+
+        char *at = strchr(raw_email, '@');
+        if (at) {
+            *at = '\0';
+            snprintf(emails[parsed], 256, "%s%04d@%s", raw_email, ts_digits, at + 1);
+        } else {
+            snprintf(emails[parsed], 256, "%s%04d@example.com", raw_email, ts_digits);
+        }
+
+        parsed++;
+    }
+
+    free(buf.data);
+    return parsed;
+}
+
 /* Seed dummy student and score data for OpenMP testing */
 int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student)
 {
@@ -595,35 +726,158 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         return 0;
     }
 
+    (void)scores_per_student; /* we now derive score count from subjects per class */
+
     DB_LOCK();
-    const char *subjects[] = {
-        "Mathematics", "Physics", "Chemistry", "Biology", "English",
-        "Computer Science", "History", "Geography", "Economics", "Statistics"
-    };
-    int num_subjects = 10;
 
     srand((unsigned int)time(NULL));
 
-    /* Clear existing data first */
+    /* ── 1. Fetch all classes from the classes collection ── */
+    bson_t *q_cls = bson_new();
+    mongoc_cursor_t *cur_cls = mongoc_collection_find_with_opts(
+        db->classes_collection, q_cls, NULL, NULL);
+
+    char **class_names = NULL;
+    int    num_classes = 0;
+    {
+        const bson_t *doc;
+        size_t cls_cap = 32;
+        class_names = (char **)malloc(cls_cap * sizeof(char *));
+        while (mongoc_cursor_next(cur_cls, &doc)) {
+            bson_iter_t it;
+            if (bson_iter_init_find(&it, doc, "name") && BSON_ITER_HOLDS_UTF8(&it)) {
+                const char *cn = bson_iter_utf8(&it, NULL);
+                if ((size_t)num_classes >= cls_cap) {
+                    cls_cap *= 2;
+                    class_names = (char **)realloc(class_names, cls_cap * sizeof(char *));
+                }
+                class_names[num_classes++] = strdup(cn);
+            }
+        }
+    }
+    mongoc_cursor_destroy(cur_cls);
+    bson_destroy(q_cls);
+
+    if (num_classes == 0) {
+        /* No classes in DB – can't seed meaningfully */
+        if (class_names) free(class_names);
+        DB_UNLOCK();
+        fprintf(stderr, "db_seed_dummy_data: no classes found in database\n");
+        return 0;
+    }
+
+    /* ── 2. For each class, fetch its subjects ── */
+    char ***class_subjects   = (char ***)calloc((size_t)num_classes, sizeof(char **));
+    int    *class_subj_count = (int *)calloc((size_t)num_classes, sizeof(int));
+
+    for (int ci = 0; ci < num_classes; ci++) {
+        bson_t *q_sub = BCON_NEW("class_name", class_names[ci]);
+        mongoc_cursor_t *cur_sub = mongoc_collection_find_with_opts(
+            db->subjects_collection, q_sub, NULL, NULL);
+
+        size_t scap = 16;
+        class_subjects[ci]   = (char **)malloc(scap * sizeof(char *));
+        class_subj_count[ci] = 0;
+
+        const bson_t *doc;
+        while (mongoc_cursor_next(cur_sub, &doc)) {
+            bson_iter_t it;
+            if (bson_iter_init_find(&it, doc, "name") && BSON_ITER_HOLDS_UTF8(&it)) {
+                const char *sn = bson_iter_utf8(&it, NULL);
+                if ((size_t)class_subj_count[ci] >= scap) {
+                    scap *= 2;
+                    class_subjects[ci] = (char **)realloc(class_subjects[ci], scap * sizeof(char *));
+                }
+                class_subjects[ci][class_subj_count[ci]++] = strdup(sn);
+            }
+        }
+        mongoc_cursor_destroy(cur_sub);
+        bson_destroy(q_sub);
+    }
+
+    /* ── 3. Clear existing students & scores ── */
     bson_t *empty_filter = bson_new();
     bson_error_t error;
     mongoc_collection_delete_many(db->students_collection, empty_filter, NULL, NULL, &error);
-    mongoc_collection_delete_many(db->scores_collection, empty_filter, NULL, NULL, &error);
+    mongoc_collection_delete_many(db->scores_collection,   empty_filter, NULL, NULL, &error);
     bson_destroy(empty_filter);
 
+    /* Release DB lock during the network-heavy fetch phase */
+    DB_UNLOCK();
+
+    /* ── 4. Parallel fetch of random users via OpenMP ──
+     * Split num_students across OMP threads; each thread batch-fetches
+     * its chunk from randomuser.me using ?results=N (up to 5000/call).
+     * libcurl is thread-safe when each thread uses its own CURL handle. */
+
+    /* Pre-allocate arrays for all student names and emails */
+    typedef char name_buf_t[256];
+    typedef char email_buf_t[256];
+    name_buf_t  *all_names  = (name_buf_t *)calloc((size_t)num_students, sizeof(name_buf_t));
+    email_buf_t *all_emails = (email_buf_t *)calloc((size_t)num_students, sizeof(email_buf_t));
+
+    int num_threads = omp_get_max_threads();
+    printf("[OpenMP] Fetching %d random users with %d threads...\n", num_students, num_threads);
+    double t_fetch_start = omp_get_wtime();
+
+    #pragma omp parallel
+    {
+        int tid       = omp_get_thread_num();
+        int nthreads  = omp_get_num_threads();
+        int chunk     = num_students / nthreads;
+        int start_idx = tid * chunk;
+        int end_idx   = (tid == nthreads - 1) ? num_students : start_idx + chunk;
+        int my_count  = end_idx - start_idx;
+
+        if (my_count > 0) {
+            /* Temporary buffers for this thread's batch */
+            name_buf_t  *tmp_names  = (name_buf_t *)calloc((size_t)my_count, sizeof(name_buf_t));
+            email_buf_t *tmp_emails = (email_buf_t *)calloc((size_t)my_count, sizeof(email_buf_t));
+
+            int fetched = fetch_random_users_batch(my_count, tmp_names, tmp_emails);
+
+            printf("  Thread %d: fetched %d/%d users (range [%d..%d))\n",
+                   tid, fetched, my_count, start_idx, end_idx);
+
+            /* Copy fetched results into the global arrays */
+            for (int i = 0; i < fetched; i++) {
+                memcpy(all_names[start_idx + i],  tmp_names[i],  256);
+                memcpy(all_emails[start_idx + i], tmp_emails[i], 256);
+            }
+
+            /* Fallback for any users that weren't fetched */
+            for (int i = fetched; i < my_count; i++) {
+                snprintf(all_names[start_idx + i],  256, "Student_%d", start_idx + i + 1);
+                snprintf(all_emails[start_idx + i], 256, "student%d@university.edu", start_idx + i + 1);
+            }
+
+            free(tmp_names);
+            free(tmp_emails);
+        }
+    }
+
+    double t_fetch_end = omp_get_wtime();
+    printf("[OpenMP] Fetch completed in %.2f seconds\n", t_fetch_end - t_fetch_start);
+
+    /* ── 5. Serial DB inserts (mongoc is NOT thread-safe) ── */
+    DB_LOCK();
     int total_scores = 0;
 
     for (int i = 0; i < num_students; i++) {
-        char student_id[32], name[64], email[64];
-        snprintf(student_id, sizeof(student_id), "STU%05d", i + 1);
-        snprintf(name, sizeof(name), "Student_%d", i + 1);
-        snprintf(email, sizeof(email), "student%d@university.edu", i + 1);
+        /* Assign class sequentially (round-robin) */
+        int ci = i % num_classes;
+        const char *class_name = class_names[ci];
+
+        /* Student ID */
+        char student_id[32];
+        snprintf(student_id, sizeof(student_id), "S%05d", i + 1);
 
         /* Insert student */
         bson_t *student_doc = bson_new();
         BSON_APPEND_UTF8(student_doc, "student_id", student_id);
-        BSON_APPEND_UTF8(student_doc, "name", name);
-        BSON_APPEND_UTF8(student_doc, "email", email);
+        BSON_APPEND_UTF8(student_doc, "name", all_names[i]);
+        BSON_APPEND_UTF8(student_doc, "email", all_emails[i]);
+        BSON_APPEND_UTF8(student_doc, "class_name", class_name);
         BSON_APPEND_DATE_TIME(student_doc, "created_at", bson_get_monotonic_time());
 
         if (!mongoc_collection_insert_one(db->students_collection, student_doc, NULL, NULL, &error)) {
@@ -631,11 +885,15 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         }
         bson_destroy(student_doc);
 
-        /* Insert scores for this student */
-        for (int j = 0; j < scores_per_student; j++) {
-            const char *subject = subjects[j % num_subjects];
-            /* Generate random score between 20.0 and 100.0 */
-            double score = 20.0 + ((double)rand() / RAND_MAX) * 80.0;
+        printf("  Seeded student %d/%d: %s (%s) → %s\n",
+               i + 1, num_students, all_names[i], student_id, class_name);
+
+        /* Insert scores for each subject in this student's class */
+        int n_subj = class_subj_count[ci];
+        for (int j = 0; j < n_subj; j++) {
+            const char *subject = class_subjects[ci][j];
+            /* Random score between 0 and 100 */
+            double score = ((double)rand() / RAND_MAX) * 100.0;
 
             bson_t *score_doc = bson_new();
             BSON_APPEND_UTF8(score_doc, "student_id", student_id);
@@ -651,6 +909,20 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
             bson_destroy(score_doc);
         }
     }
+
+    /* ── 6. Clean up allocated memory ── */
+    free(all_names);
+    free(all_emails);
+
+    for (int ci = 0; ci < num_classes; ci++) {
+        for (int j = 0; j < class_subj_count[ci]; j++)
+            free(class_subjects[ci][j]);
+        free(class_subjects[ci]);
+        free(class_names[ci]);
+    }
+    free(class_subjects);
+    free(class_subj_count);
+    free(class_names);
 
     DB_UNLOCK();
     printf("Seeded %d students with %d total scores\n", num_students, total_scores);
