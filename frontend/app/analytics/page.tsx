@@ -28,6 +28,7 @@ interface CalcResult {
   scores_count: number;
   elapsed_ms: number;
   sort_time_ms: number;
+  db_fetch_ms: number;
   statistics: Statistics;
   grade_distribution: GradeDistribution;
 }
@@ -35,6 +36,7 @@ interface CalcResult {
 interface Comparison {
   serial_time_ms: number;
   parallel_time_ms: number;
+  db_fetch_ms: number;
   speedup: number;
   serial_threads: number;
   parallel_threads: number;
@@ -51,6 +53,10 @@ interface CompareData {
 interface SeedData {
   students_created: number;
   scores_created: number;
+}
+
+function formatTime(ms: number): string {
+  return `${(ms / 1000).toFixed(4)} s`;
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -75,7 +81,7 @@ function GradeBar({ grade, count, total, color }: { grade: string; count: number
   );
 }
 
-function ResultPanel({ result, color }: { result: CalcResult; color: string }) {
+function ResultPanel({ result, color, totalMs }: { result: CalcResult; color: string; totalMs?: number | null }) {
   const total = result.grade_distribution.A_90_100 + result.grade_distribution.B_80_89 +
     result.grade_distribution.C_70_79 + result.grade_distribution.D_60_69 + result.grade_distribution.F_below_60;
 
@@ -88,10 +94,28 @@ function ResultPanel({ result, color }: { result: CalcResult; color: string }) {
         </span>
       </div>
 
-      <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center">
-        <div className="text-xs text-zinc-400">Execution Time</div>
-        <div className="text-2xl font-bold text-white font-mono">{result.elapsed_ms.toFixed(4)} ms</div>
-        <div className="text-xs text-zinc-500 font-mono">sort: {result.sort_time_ms.toFixed(4)} ms</div>
+      <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center space-y-1">
+        <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Time Breakdown</div>
+        <div className="grid grid-cols-3 gap-1 text-center mt-1">
+          <div>
+            <div className="text-xs text-zinc-500">DB Fetch</div>
+            <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(result.db_fetch_ms)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500">Calculation</div>
+            <div className="text-sm font-bold text-white font-mono">{formatTime(result.elapsed_ms)}</div>
+          </div>
+          <div>
+            <div className="text-xs text-zinc-500">Sort</div>
+            <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms)}</div>
+          </div>
+        </div>
+        {totalMs != null && (
+          <div className="mt-2 pt-2 border-t border-zinc-700">
+            <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
+            <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -123,6 +147,9 @@ export default function AnalyticsPage() {
   const [compareData, setCompareData] = useState<CompareData | null>(null);
   const [serialOnly, setSerialOnly] = useState<CalcResult | null>(null);
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
+  const [serialTotalMs, setSerialTotalMs] = useState<number | null>(null);
+  const [parallelTotalMs, setParallelTotalMs] = useState<number | null>(null);
+  const [compareTotalMs, setCompareTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
 
@@ -149,10 +176,12 @@ export default function AnalyticsPage() {
   async function runSerial() {
     setLoading("serial");
     setError(null);
+    const t0 = performance.now();
     try {
       const res = await fetch(`${API}/api/calculate/serial`);
       const json = await res.json();
       setSerialOnly(json.data);
+      setSerialTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Serial calc failed: ${e}`);
     }
@@ -162,10 +191,12 @@ export default function AnalyticsPage() {
   async function runParallel() {
     setLoading("parallel");
     setError(null);
+    const t0 = performance.now();
     try {
       const res = await fetch(`${API}/api/calculate/parallel`);
       const json = await res.json();
       setParallelOnly(json.data);
+      setParallelTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Parallel calc failed: ${e}`);
     }
@@ -175,10 +206,12 @@ export default function AnalyticsPage() {
   async function runCompare() {
     setLoading("compare");
     setError(null);
+    const t0 = performance.now();
     try {
       const res = await fetch(`${API}/api/calculate/compare`);
       const json = await res.json();
       setCompareData(json.data);
+      setCompareTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Comparison failed: ${e}`);
     }
@@ -301,8 +334,8 @@ export default function AnalyticsPage() {
         {/* Individual Results */}
         {(serialOnly || parallelOnly) && !compareData && (
           <div className="grid md:grid-cols-2 gap-6 mb-6">
-            {serialOnly && <ResultPanel result={serialOnly} color="border-blue-700" />}
-            {parallelOnly && <ResultPanel result={parallelOnly} color="border-purple-700" />}
+            {serialOnly && <ResultPanel result={serialOnly} color="border-blue-700" totalMs={serialTotalMs} />}
+            {parallelOnly && <ResultPanel result={parallelOnly} color="border-purple-700" totalMs={parallelTotalMs} />}
           </div>
         )}
 
@@ -316,7 +349,7 @@ export default function AnalyticsPage() {
                 <div>
                   <div className="text-xs text-zinc-400">Serial Time</div>
                   <div className="text-2xl font-bold text-blue-400 font-mono">
-                    {compareData.comparison.serial_time_ms.toFixed(4)} ms
+                    {formatTime(compareData.comparison.serial_time_ms)}
                   </div>
                   <div className="text-xs text-zinc-500">{compareData.comparison.serial_threads} thread</div>
                 </div>
@@ -332,13 +365,24 @@ export default function AnalyticsPage() {
                 <div>
                   <div className="text-xs text-zinc-400">Parallel Time</div>
                   <div className="text-2xl font-bold text-purple-400 font-mono">
-                    {compareData.comparison.parallel_time_ms.toFixed(4)} ms
+                    {formatTime(compareData.comparison.parallel_time_ms)}
                   </div>
                   <div className="text-xs text-zinc-500">{compareData.comparison.parallel_threads} threads</div>
                 </div>
               </div>
-              <div className="mt-4 text-xs text-zinc-500 font-mono">
-                Data size: {compareData.comparison.data_size.toLocaleString()} scores from MongoDB
+              <div className="mt-4 pt-3 border-t border-amber-800/50 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-xs text-zinc-500">DB Fetch</div>
+                  <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(compareData.comparison.db_fetch_ms)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Data Size</div>
+                  <div className="text-sm font-bold text-zinc-300 font-mono">{compareData.comparison.data_size.toLocaleString()} scores</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Total Wall Time</div>
+                  <div className="text-sm font-bold text-emerald-400 font-mono">{compareTotalMs != null ? formatTime(compareTotalMs) : "—"}</div>
+                </div>
               </div>
             </div>
 

@@ -73,7 +73,9 @@ int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
     int     count  = 0;
+    double  t_db   = omp_get_wtime();
     double *scores = db_get_scores_array(global_db, &count);
+    double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
         return SendErrorResponse(conn, 404,
@@ -88,7 +90,7 @@ int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
     free(scores);
 
     char data[2048];
-    format_result_json(data, sizeof(data), &r, "serial");
+    format_result_json(data, sizeof(data), &r, "serial", db_fetch_ms);
     return SendJSONResponse(conn, "success", "Serial calculation completed", data);
 }
 
@@ -104,7 +106,9 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
     int     count  = 0;
+    double  t_db   = omp_get_wtime();
     double *scores = db_get_scores_array(global_db, &count);
+    double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
         return SendErrorResponse(conn, 404,
@@ -115,7 +119,7 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
     free(scores);
 
     char data[2048];
-    format_result_json(data, sizeof(data), &r, "parallel");
+    format_result_json(data, sizeof(data), &r, "parallel", db_fetch_ms);
     return SendJSONResponse(conn, "success",
         "Parallel (OpenMP) calculation completed", data);
 }
@@ -132,7 +136,9 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
     int     count  = 0;
+    double  t_db   = omp_get_wtime();
     double *scores = db_get_scores_array(global_db, &count);
+    double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
         return SendErrorResponse(conn, 404,
@@ -153,8 +159,8 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         ? serial.elapsed_ms / parallel.elapsed_ms : 0.0;
 
     char ser_json[2048], par_json[2048];
-    format_result_json(ser_json, sizeof(ser_json), &serial,   "serial");
-    format_result_json(par_json, sizeof(par_json), &parallel, "parallel");
+    format_result_json(ser_json, sizeof(ser_json), &serial,   "serial",   db_fetch_ms);
+    format_result_json(par_json, sizeof(par_json), &parallel, "parallel", db_fetch_ms);
 
     char *data = (char *)malloc(8192);
     if (!data) return SendErrorResponse(conn, 500, "Memory allocation failed");
@@ -166,6 +172,7 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         "    \"comparison\": {\n"
         "      \"serial_time_ms\": %.4f,\n"
         "      \"parallel_time_ms\": %.4f,\n"
+        "      \"db_fetch_ms\": %.4f,\n"
         "      \"speedup\": %.4f,\n"
         "      \"serial_threads\": %d,\n"
         "      \"parallel_threads\": %d,\n"
@@ -174,7 +181,7 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         "    }\n"
         "  }",
         ser_json, par_json,
-        serial.elapsed_ms, parallel.elapsed_ms, speedup,
+        serial.elapsed_ms, parallel.elapsed_ms, db_fetch_ms, speedup,
         serial.threads_used, parallel.threads_used,
         count,
         (speedup > 1.0) ? (speedup - 1.0) * 100.0 : 0.0);
