@@ -795,12 +795,31 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         bson_destroy(q_sub);
     }
 
-    /* ── 3. Clear existing students & scores ── */
-    bson_t *empty_filter = bson_new();
+    /* ── 3. Find the last student_id to continue numbering ── */
     bson_error_t error;
-    mongoc_collection_delete_many(db->students_collection, empty_filter, NULL, NULL, &error);
-    mongoc_collection_delete_many(db->scores_collection,   empty_filter, NULL, NULL, &error);
-    bson_destroy(empty_filter);
+    int last_id_num = 0;
+    {
+        bson_t *opts = BCON_NEW("sort", "{", "student_id", BCON_INT32(-1), "}",
+                                "limit", BCON_INT64(1));
+        bson_t *q = bson_new();
+        mongoc_cursor_t *cur = mongoc_collection_find_with_opts(
+            db->students_collection, q, opts, NULL);
+        const bson_t *doc;
+        if (mongoc_cursor_next(cur, &doc)) {
+            bson_iter_t it;
+            if (bson_iter_init_find(&it, doc, "student_id") && BSON_ITER_HOLDS_UTF8(&it)) {
+                const char *sid = bson_iter_utf8(&it, NULL);
+                if (sid[0] == 'S') {
+                    last_id_num = atoi(sid + 1);
+                }
+            }
+        }
+        mongoc_cursor_destroy(cur);
+        bson_destroy(q);
+        bson_destroy(opts);
+    }
+    printf("  Last existing student_id: S%05d (starting from S%05d)\n",
+           last_id_num, last_id_num + 1);
 
     /* Release DB lock during the network-heavy fetch phase */
     DB_UNLOCK();
@@ -870,7 +889,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 
         /* Student ID */
         char student_id[32];
-        snprintf(student_id, sizeof(student_id), "S%05d", i + 1);
+        snprintf(student_id, sizeof(student_id), "S%05d", last_id_num + i + 1);
 
         /* Insert student */
         bson_t *student_doc = bson_new();
