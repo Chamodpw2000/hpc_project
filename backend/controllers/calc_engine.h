@@ -38,9 +38,11 @@ calc_result_t run_parallel(const double *scores, int n);
 
 /*
  * Serialise a calc_result_t into a JSON fragment stored in buf[0..sz-1].
- * label – e.g. "serial" or "parallel"
+ * label       – e.g. "serial" or "parallel"
+ * db_fetch_ms – time spent fetching scores from MongoDB (ms)
  */
 void format_result_json(char *buf, size_t sz,
-                        const calc_result_t *r, const char *label);
+                        const calc_result_t *r, const char *label,
+                        double db_fetch_ms);
 
 #endif /* CALC_ENGINE_H */

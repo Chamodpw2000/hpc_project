@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <math.h>
@@ -60,7 +61,7 @@ db_connection_t* db_init(const char *connection_string, const char *db_name)
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 0) == 0)
         mongoc_uri_set_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 10000);
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 0) == 0)
-        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 30000);
+        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 120000);
 
     /* Enable retryable reads & writes (guards against transient cluster errors) */
     mongoc_uri_set_option_as_bool(uri, MONGOC_URI_RETRYREADS,  true);
@@ -892,7 +893,6 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     }
 
     /* ── 3. Find the last student_id to continue numbering ── */
-    bson_error_t error;
     int last_id_num = 0;
     {
         bson_t *opts = BCON_NEW("sort", "{", "student_id", BCON_INT32(-1), "}",
@@ -974,58 +974,161 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     double t_fetch_end = omp_get_wtime();
     printf("[OpenMP] Fetch completed in %.2f seconds\n", t_fetch_end - t_fetch_start);
 
-    /* ── 5. Serial DB inserts (mongoc is NOT thread-safe) ── */
-    DB_LOCK();
-    int total_scores = 0;
-
+    /* ── 5. Parallel BSON document construction (OpenMP) ── */
+    /* Pre-compute class assignment and score offsets for each student */
+    int *stu_class_idx  = (int *)malloc((size_t)num_students * sizeof(int));
+    int *score_offsets   = (int *)malloc(((size_t)num_students + 1) * sizeof(int));
+    score_offsets[0] = 0;
     for (int i = 0; i < num_students; i++) {
-        /* Assign class sequentially (round-robin) */
-        int ci = i % num_classes;
-        const char *class_name = class_names[ci];
+        stu_class_idx[i] = i % num_classes;
+        score_offsets[i + 1] = score_offsets[i] + class_subj_count[stu_class_idx[i]];
+    }
+    int total_score_docs = score_offsets[num_students];
 
-        /* Student ID */
-        char student_id[32];
-        snprintf(student_id, sizeof(student_id), "S%05d", last_id_num + i + 1);
+    /* Allocate arrays for all BSON documents */
+    bson_t **student_docs = (bson_t **)calloc((size_t)num_students,     sizeof(bson_t *));
+    bson_t **score_docs   = (bson_t **)calloc((size_t)total_score_docs, sizeof(bson_t *));
 
-        /* Insert student */
-        bson_t *student_doc = bson_new();
-        BSON_APPEND_UTF8(student_doc, "student_id", student_id);
-        BSON_APPEND_UTF8(student_doc, "name", all_names[i]);
-        BSON_APPEND_UTF8(student_doc, "email", all_emails[i]);
-        BSON_APPEND_UTF8(student_doc, "class_name", class_name);
-        BSON_APPEND_DATE_TIME(student_doc, "created_at", bson_get_monotonic_time());
+    printf("[OpenMP] Building %d student docs + %d score docs in parallel...\n",
+           num_students, total_score_docs);
+    double t_build_start = omp_get_wtime();
 
-        if (!mongoc_collection_insert_one(db->students_collection, student_doc, NULL, NULL, &error)) {
-            fprintf(stderr, "Failed to insert student %s: %s\n", student_id, error.message);
-        }
-        bson_destroy(student_doc);
+    #pragma omp parallel
+    {
+        unsigned int seed = (unsigned int)(time(NULL) ^ (omp_get_thread_num() * 1013));
 
-        printf("  Seeded student %d/%d: %s (%s) → %s\n",
-               i + 1, num_students, all_names[i], student_id, class_name);
+        #pragma omp for schedule(dynamic, 64)
+        for (int i = 0; i < num_students; i++) {
+            int ci = stu_class_idx[i];
+            const char *cname = class_names[ci];
 
-        /* Insert scores for each subject in this student's class */
-        int n_subj = class_subj_count[ci];
-        for (int j = 0; j < n_subj; j++) {
-            const char *subject = class_subjects[ci][j];
-            /* Random score between 0 and 100 */
-            double score = ((double)rand() / RAND_MAX) * 100.0;
+            char sid[32];
+            snprintf(sid, sizeof(sid), "S%05d", last_id_num + i + 1);
 
-            bson_t *score_doc = bson_new();
-            BSON_APPEND_UTF8(score_doc, "student_id", student_id);
-            BSON_APPEND_UTF8(score_doc, "subject", subject);
-            BSON_APPEND_DOUBLE(score_doc, "score", score);
-            BSON_APPEND_DATE_TIME(score_doc, "created_at", bson_get_monotonic_time());
+            /* ── Build student BSON document ── */
+            bson_t *sdoc = bson_new();
+            BSON_APPEND_UTF8(sdoc, "student_id", sid);
+            BSON_APPEND_UTF8(sdoc, "name",       all_names[i]);
+            BSON_APPEND_UTF8(sdoc, "email",      all_emails[i]);
+            BSON_APPEND_UTF8(sdoc, "class_name", cname);
+            BSON_APPEND_DATE_TIME(sdoc, "created_at", bson_get_monotonic_time());
+            student_docs[i] = sdoc;
 
-            if (!mongoc_collection_insert_one(db->scores_collection, score_doc, NULL, NULL, &error)) {
-                fprintf(stderr, "Failed to insert score: %s\n", error.message);
-            } else {
-                total_scores++;
+            /* ── Build score BSON documents for each subject ── */
+            int off    = score_offsets[i];
+            int n_subj = class_subj_count[ci];
+            for (int j = 0; j < n_subj; j++) {
+                double score_val = ((double)rand_r(&seed) / RAND_MAX) * 100.0;
+
+                bson_t *scdoc = bson_new();
+                BSON_APPEND_UTF8(scdoc, "student_id", sid);
+                BSON_APPEND_UTF8(scdoc, "subject",    class_subjects[ci][j]);
+                BSON_APPEND_DOUBLE(scdoc, "score",     score_val);
+                BSON_APPEND_DATE_TIME(scdoc, "created_at", bson_get_monotonic_time());
+                score_docs[off + j] = scdoc;
             }
-            bson_destroy(score_doc);
         }
     }
 
-    /* ── 6. Clean up allocated memory ── */
+    double t_build_end = omp_get_wtime();
+    printf("[OpenMP] Document build completed in %.2f seconds\n",
+           t_build_end - t_build_start);
+
+    /* ── 6. Parallel bulk insert with OMP critical sections ──
+     * mongoc_client is NOT thread-safe, so actual DB calls are
+     * guarded by named critical sections.  Each thread prepares
+     * its batch index range outside the critical region; only the
+     * bulk execute enters the critical section.
+     */
+    #define BULK_BATCH 500
+
+    int num_stu_batches  = (num_students     + BULK_BATCH - 1) / BULK_BATCH;
+    int num_scr_batches  = (total_score_docs + BULK_BATCH - 1) / BULK_BATCH;
+    int stu_errors = 0, scr_errors = 0;
+
+    printf("[OpenMP] Bulk-inserting %d students (%d batches) + %d scores (%d batches)...\n",
+           num_students, num_stu_batches, total_score_docs, num_scr_batches);
+    double t_ins_start = omp_get_wtime();
+
+    /* ── 6a. Bulk insert students ── */
+    #pragma omp parallel for schedule(dynamic) reduction(+:stu_errors)
+    for (int b = 0; b < num_stu_batches; b++) {
+        int s = b * BULK_BATCH;
+        int e = s + BULK_BATCH;
+        if (e > num_students) e = num_students;
+
+        bson_error_t err;
+        #pragma omp critical(db_student_insert)
+        {
+            mongoc_bulk_operation_t *bulk =
+                mongoc_collection_create_bulk_operation_with_opts(
+                    db->students_collection, NULL);
+            for (int i = s; i < e; i++)
+                mongoc_bulk_operation_insert(bulk, student_docs[i]);
+
+            bson_t reply;
+            bool ok = mongoc_bulk_operation_execute(bulk, &reply, &err);
+            if (!ok) {
+                fprintf(stderr, "  Bulk student batch %d/%d FAILED: %s\n",
+                        b + 1, num_stu_batches, err.message);
+                stu_errors += (e - s);
+            }
+            bson_destroy(&reply);
+            mongoc_bulk_operation_destroy(bulk);
+        }
+    }
+
+    /* ── 6b. Bulk insert scores ── */
+    #pragma omp parallel for schedule(dynamic) reduction(+:scr_errors)
+    for (int b = 0; b < num_scr_batches; b++) {
+        int s = b * BULK_BATCH;
+        int e = s + BULK_BATCH;
+        if (e > total_score_docs) e = total_score_docs;
+
+        bson_error_t err;
+        #pragma omp critical(db_score_insert)
+        {
+            mongoc_bulk_operation_t *bulk =
+                mongoc_collection_create_bulk_operation_with_opts(
+                    db->scores_collection, NULL);
+            for (int i = s; i < e; i++)
+                mongoc_bulk_operation_insert(bulk, score_docs[i]);
+
+            bson_t reply;
+            bool ok = mongoc_bulk_operation_execute(bulk, &reply, &err);
+            if (!ok) {
+                fprintf(stderr, "  Bulk score batch %d/%d FAILED: %s\n",
+                        b + 1, num_scr_batches, err.message);
+                scr_errors += (e - s);
+            }
+            bson_destroy(&reply);
+            mongoc_bulk_operation_destroy(bulk);
+        }
+    }
+
+    double t_ins_end = omp_get_wtime();
+    int total_scores = total_score_docs - scr_errors;
+    printf("[OpenMP] Bulk insert completed in %.2f seconds  "
+           "(students: %d ok / %d err, scores: %d ok / %d err)\n",
+           t_ins_end - t_ins_start,
+           num_students - stu_errors, stu_errors,
+           total_scores, scr_errors);
+
+    /* ── 7. Free all BSON documents (parallel) ── */
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < num_students; i++)
+        bson_destroy(student_docs[i]);
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < total_score_docs; i++)
+        bson_destroy(score_docs[i]);
+
+    free(student_docs);
+    free(score_docs);
+    free(stu_class_idx);
+    free(score_offsets);
+
+    /* ── 8. Clean up remaining allocations ── */
     free(all_names);
     free(all_emails);
 
@@ -1039,8 +1142,9 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     free(class_subj_count);
     free(class_names);
 
-    DB_UNLOCK();
-    printf("Seeded %d students with %d total scores\n", num_students, total_scores);
+    double t_total = omp_get_wtime() - t_fetch_start;
+    printf("Seeded %d students with %d total scores (total wall time: %.2f s)\n",
+           num_students - stu_errors, total_scores, t_total);
     return total_scores;
 }
 
@@ -1065,24 +1169,54 @@ double* db_get_scores_array(db_connection_t *db, int *out_count)
         return NULL;
     }
 
-    double *scores = (double*)malloc(sizeof(double) * (size_t)count);
+    /* Allocate with 20% extra headroom in case new docs arrive mid-query */
+    size_t capacity = (size_t)count + (size_t)count / 5 + 64;
+    double *scores = (double *)malloc(sizeof(double) * capacity);
     if (!scores) {
         bson_destroy(filter);
         DB_UNLOCK();
         return NULL;
     }
 
+    /* Project only the "score" field to minimise data over the wire.
+     * Use a small batchSize (5 000) so each server response stays well
+     * under Atlas / socket buffer limits even at 100k+ documents.
+     * The driver automatically issues getMore for remaining batches. */
+    bson_t *opts = BCON_NEW(
+        "projection", "{", "score", BCON_INT32(1), "_id", BCON_INT32(0), "}",
+        "batchSize",  BCON_INT32(5000));
     mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(
-        db->scores_collection, filter, NULL, NULL);
+        db->scores_collection, filter, opts, NULL);
+    bson_destroy(opts);
 
     const bson_t *doc;
     int idx = 0;
 
     while (mongoc_cursor_next(cursor, &doc)) {
-        bson_iter_t iter;
-        if (bson_iter_init_find(&iter, doc, "score") && BSON_ITER_HOLDS_DOUBLE(&iter)) {
-            scores[idx++] = bson_iter_double(&iter);
+        /* Grow buffer if needed (shouldn't happen, but safety margin) */
+        if ((size_t)idx >= capacity) {
+            capacity = capacity * 2;
+            double *tmp = (double *)realloc(scores, sizeof(double) * capacity);
+            if (!tmp) {
+                fprintf(stderr, "db_get_scores_array: realloc failed at %d\n", idx);
+                break;
+            }
+            scores = tmp;
         }
+        bson_iter_t iter;
+        if (bson_iter_init_find(&iter, doc, "score")) {
+            if (BSON_ITER_HOLDS_DOUBLE(&iter))
+                scores[idx++] = bson_iter_double(&iter);
+            else if (BSON_ITER_HOLDS_INT32(&iter))
+                scores[idx++] = (double)bson_iter_int32(&iter);
+            else if (BSON_ITER_HOLDS_INT64(&iter))
+                scores[idx++] = (double)bson_iter_int64(&iter);
+        }
+    }
+
+    bson_error_t cursor_err;
+    if (mongoc_cursor_error(cursor, &cursor_err)) {
+        fprintf(stderr, "db_get_scores_array cursor error: %s\n", cursor_err.message);
     }
 
     mongoc_cursor_destroy(cursor);
@@ -1090,7 +1224,7 @@ double* db_get_scores_array(db_connection_t *db, int *out_count)
 
     *out_count = idx;
     DB_UNLOCK();
-    printf("Fetched %d scores from database\n", idx);
+    printf("Fetched %d scores from database (expected %" PRId64 ")\n", idx, count);
     return scores;
 }
 

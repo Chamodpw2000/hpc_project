@@ -197,7 +197,8 @@ calc_result_t run_parallel(const double *scores, int n)
  * JSON serialiser
  * ========================================================================== */
 void format_result_json(char *buf, size_t sz,
-                        const calc_result_t *r, const char *label)
+                        const calc_result_t *r, const char *label,
+                        double db_fetch_ms)
 {
     snprintf(buf, sz,
         "{\n"
@@ -206,6 +207,7 @@ void format_result_json(char *buf, size_t sz,
         "    \"scores_count\": %d,\n"
         "    \"elapsed_ms\": %.4f,\n"
         "    \"sort_time_ms\": %.4f,\n"
+        "    \"db_fetch_ms\": %.4f,\n"
         "    \"statistics\": {\n"
         "      \"sum\": %.4f,\n"
         "      \"mean\": %.4f,\n"
@@ -224,6 +226,7 @@ void format_result_json(char *buf, size_t sz,
         "    }\n"
         "  }",
         label, r->threads_used, r->count, r->elapsed_ms, r->sort_time_ms,
+        db_fetch_ms,
         r->sum, r->mean, r->median, r->variance, r->stddev, r->min, r->max,
         r->grade_A, r->grade_B, r->grade_C, r->grade_D, r->grade_F);
 }
