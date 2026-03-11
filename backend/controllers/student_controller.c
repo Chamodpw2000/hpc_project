@@ -178,6 +178,62 @@ int UsersHandler(struct mg_connection *conn, void *cbdata)
         char class_filter[256] = "";
         get_query_param_stu(ri->query_string, "class", class_filter, sizeof(class_filter));
 
+        /* Check for ?page=, ?limit= (pagination) and ?search= */
+        char page_str[32] = "", limit_str[32] = "", search_str[256] = "";
+        get_query_param_stu(ri->query_string, "page",   page_str,   sizeof(page_str));
+        get_query_param_stu(ri->query_string, "limit",  limit_str,  sizeof(limit_str));
+        get_query_param_stu(ri->query_string, "search", search_str, sizeof(search_str));
+        int page  = (page_str[0]  != '\0') ? atoi(page_str)  : 0;
+        int limit = (limit_str[0] != '\0') ? atoi(limit_str) : 0;
+        const char *search = (search_str[0] != '\0') ? search_str : NULL;
+
+        /* If class + pagination params provided, use paginated query */
+        if (class_filter[0] != '\0' && page > 0 && limit > 0) {
+            int total = db_count_students_by_class(global_db, class_filter, search);
+            int total_pages = (total + limit - 1) / limit;
+            if (total_pages < 1) total_pages = 1;
+
+            char *students_json = db_get_students_by_class_paginated(global_db, class_filter, page, limit, search);
+
+            /* Build paginated response */
+            size_t slen = students_json ? strlen(students_json) : 2;
+            size_t buf_size = slen + 512;
+            char *response = (char *)malloc(buf_size);
+            if (!response) {
+                free(students_json);
+                return SendErrorResponse(conn, 500, "Memory allocation failed");
+            }
+            snprintf(response, buf_size,
+                "{"
+                "\"status\":\"success\","
+                "\"message\":\"Students retrieved successfully\","
+                "\"data\":%s,"
+                "\"pagination\":{"
+                    "\"page\":%d,"
+                    "\"limit\":%d,"
+                    "\"total\":%d,"
+                    "\"total_pages\":%d"
+                "}"
+                "}",
+                students_json ? students_json : "[]",
+                page, limit, total, total_pages);
+            free(students_json);
+
+            size_t rlen = strlen(response);
+            mg_printf(conn,
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json; charset=utf-8\r\n"
+                "Content-Length: %zu\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n"
+                "Access-Control-Allow-Headers: Content-Type\r\n"
+                "Connection: close\r\n\r\n",
+                rlen);
+            mg_write(conn, response, rlen);
+            free(response);
+            return 200;
+        }
+
         char *users_json;
         if (class_filter[0] != '\0')
             users_json = db_get_students_by_class(global_db, class_filter);

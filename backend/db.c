@@ -300,6 +300,102 @@ static int buf_append(char **buf, size_t *len, size_t *cap, const char *src)
     return 1;
 }
 
+/* Build a BSON filter for class + optional search (caller must bson_destroy) */
+static bson_t *build_student_filter(const char *class_name, const char *search)
+{
+    bson_t *filter = bson_new();
+    BSON_APPEND_UTF8(filter, "class_name", class_name);
+
+    if (search && search[0] != '\0') {
+        bson_t or_arr, c0, c1, c2, r0, r1, r2;
+        BSON_APPEND_ARRAY_BEGIN(filter, "$or", &or_arr);
+
+        BSON_APPEND_DOCUMENT_BEGIN(&or_arr, "0", &c0);
+        BSON_APPEND_DOCUMENT_BEGIN(&c0, "name", &r0);
+        BSON_APPEND_UTF8(&r0, "$regex", search);
+        BSON_APPEND_UTF8(&r0, "$options", "i");
+        bson_append_document_end(&c0, &r0);
+        bson_append_document_end(&or_arr, &c0);
+
+        BSON_APPEND_DOCUMENT_BEGIN(&or_arr, "1", &c1);
+        BSON_APPEND_DOCUMENT_BEGIN(&c1, "email", &r1);
+        BSON_APPEND_UTF8(&r1, "$regex", search);
+        BSON_APPEND_UTF8(&r1, "$options", "i");
+        bson_append_document_end(&c1, &r1);
+        bson_append_document_end(&or_arr, &c1);
+
+        BSON_APPEND_DOCUMENT_BEGIN(&or_arr, "2", &c2);
+        BSON_APPEND_DOCUMENT_BEGIN(&c2, "student_id", &r2);
+        BSON_APPEND_UTF8(&r2, "$regex", search);
+        BSON_APPEND_UTF8(&r2, "$options", "i");
+        bson_append_document_end(&c2, &r2);
+        bson_append_document_end(&or_arr, &c2);
+
+        bson_append_array_end(filter, &or_arr);
+    }
+    return filter;
+}
+
+/* Count students in a class (with optional search) */
+int db_count_students_by_class(db_connection_t *db, const char *class_name, const char *search)
+{
+    if (!db || !db->students_collection || !class_name) return 0;
+
+    DB_LOCK();
+    bson_t *filter = build_student_filter(class_name, search);
+    bson_error_t error;
+    int64_t count = mongoc_collection_count_documents(
+        db->students_collection, filter, NULL, NULL, NULL, &error);
+    bson_destroy(filter);
+    DB_UNLOCK();
+
+    return (int)(count > 0 ? count : 0);
+}
+
+/* Get students by class with pagination and optional search (page is 1-based) */
+char* db_get_students_by_class_paginated(db_connection_t *db, const char *class_name,
+                                          int page, int limit, const char *search)
+{
+    if (!db || !db->students_collection || !class_name) return strdup("[]");
+    if (page < 1) page = 1;
+    if (limit < 1) limit = 20;
+
+    int skip = (page - 1) * limit;
+
+    DB_LOCK();
+
+    bson_t *query = build_student_filter(class_name, search);
+    bson_t *opts  = BCON_NEW("skip",  BCON_INT64(skip),
+                             "limit", BCON_INT64(limit),
+                             "sort",  "{", "student_id", BCON_INT32(1), "}");
+    mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(
+        db->students_collection, query, opts, NULL);
+
+    size_t cap = 4096, len = 0;
+    char *result = (char *)malloc(cap);
+    if (!result) { mongoc_cursor_destroy(cursor); bson_destroy(query); bson_destroy(opts); DB_UNLOCK(); return strdup("[]"); }
+    result[0] = '\0';
+    buf_append(&result, &len, &cap, "[");
+
+    const bson_t *doc;
+    int first = 1;
+    while (mongoc_cursor_next(cursor, &doc)) {
+        char *str = bson_as_canonical_extended_json(doc, NULL);
+        if (!first) buf_append(&result, &len, &cap, ",");
+        buf_append(&result, &len, &cap, str);
+        bson_free(str);
+        first = 0;
+    }
+    buf_append(&result, &len, &cap, "]");
+
+    mongoc_cursor_destroy(cursor);
+    bson_destroy(query);
+    bson_destroy(opts);
+
+    DB_UNLOCK();
+    return result;
+}
+
 /* Get all students as JSON string */
 char* db_get_all_students(db_connection_t *db)
 {
