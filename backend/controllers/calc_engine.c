@@ -50,10 +50,10 @@ calc_result_t run_serial(const double *scores, int n)
         double diff = scores[i] - r.mean;
         var_sum += diff * diff;
 
-        if      (scores[i] >= 90) r.grade_A++;
-        else if (scores[i] >= 80) r.grade_B++;
-        else if (scores[i] >= 70) r.grade_C++;
-        else if (scores[i] >= 60) r.grade_D++;
+        if      (scores[i] >= 75) r.grade_A++;
+        else if (scores[i] >= 65) r.grade_B++;
+        else if (scores[i] >= 55) r.grade_C++;
+        else if (scores[i] >= 45) r.grade_D++;
         else                      r.grade_F++;
     }
     r.variance = var_sum / n;
@@ -153,10 +153,10 @@ calc_result_t run_parallel(const double *scores, int n)
         double diff = scores[i] - r.mean;
         var_sum += diff * diff;
 
-        if      (scores[i] >= 90) gA++;
-        else if (scores[i] >= 80) gB++;
-        else if (scores[i] >= 70) gC++;
-        else if (scores[i] >= 60) gD++;
+        if      (scores[i] >= 75) gA++;
+        else if (scores[i] >= 65) gB++;
+        else if (scores[i] >= 55) gC++;
+        else if (scores[i] >= 45) gD++;
         else                      gF++;
     }
     r.variance = var_sum / n;
