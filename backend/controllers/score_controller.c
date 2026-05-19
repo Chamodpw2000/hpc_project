@@ -1,9 +1,4 @@
-/*
- * Score Controller Implementation
- * Seed endpoint + Serial / Parallel / Compare calculation endpoints.
- * Copyright (c) 2026
- * MIT License
- */
+
 
 #include "score_controller.h"
 #include "response_helper.h"
@@ -15,10 +10,8 @@
 #include <string.h>
 #include <omp.h>
 
-/* Shared DB handle – defined in score_analyzer_backend.c */
 extern db_connection_t *global_db;
 
-/* ---- POST /api/seed ------------------------------------------------------- */
 int SeedHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -32,10 +25,8 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
-    /* Defaults */
     int num_students = 100;
 
-    /* Parse optional request body */
     char buffer[512];
     int  dlen = mg_read(conn, buffer, sizeof(buffer) - 1);
     if (dlen > 0) {
@@ -61,7 +52,6 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Dummy data seeded successfully", data);
 }
 
-/* ---- GET /api/calculate/serial ------------------------------------------- */
 int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -82,7 +72,6 @@ int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
-    /* Force single thread for the serial run */
     int prev = omp_get_max_threads();
     omp_set_num_threads(1);
     calc_result_t r = run_serial(scores, count);
@@ -94,7 +83,6 @@ int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Serial calculation completed", data);
 }
 
-/* ---- GET /api/calculate/parallel ----------------------------------------- */
 int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -124,7 +112,6 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
         "Parallel (OpenMP) calculation completed", data);
 }
 
-/* ---- GET /api/calculate/compare ------------------------------------------ */
 int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -145,13 +132,11 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
-    /* Serial run (force 1 thread) */
     int prev = omp_get_max_threads();
     omp_set_num_threads(1);
     calc_result_t serial = run_serial(scores, count);
     omp_set_num_threads(prev);
 
-    /* Parallel run */
     calc_result_t parallel = run_parallel(scores, count);
     free(scores);
 

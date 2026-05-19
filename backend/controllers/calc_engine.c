@@ -1,10 +1,3 @@
-/*
- * Score Calculation Engine Implementation
- * Serial and OpenMP-parallel statistical computation.
- * Copyright (c) 2026
- * MIT License
- */
-
 #include "calc_engine.h"
 
 #include <stdlib.h>
@@ -13,7 +6,6 @@
 #include <omp.h>
 #include <stdio.h>
 
-/* ---- qsort comparator -------------------------------------------------- */
 static int cmp_double(const void *a, const void *b)
 {
     double da = *(const double *)a;
@@ -21,9 +13,6 @@ static int cmp_double(const void *a, const void *b)
     return (da > db) - (da < db);
 }
 
-/* ==========================================================================
- * SERIAL calculation
- * ========================================================================== */
 calc_result_t run_serial(const double *scores, int n)
 {
     calc_result_t r;
@@ -33,7 +22,6 @@ calc_result_t run_serial(const double *scores, int n)
 
     double t_start = omp_get_wtime();
 
-    /* Sum, min, max */
     r.min = scores[0];
     r.max = scores[0];
     r.sum = 0.0;
@@ -44,7 +32,6 @@ calc_result_t run_serial(const double *scores, int n)
     }
     r.mean = r.sum / n;
 
-    /* Variance + grade distribution */
     double var_sum = 0.0;
     for (int i = 0; i < n; i++) {
         double diff = scores[i] - r.mean;
@@ -59,7 +46,6 @@ calc_result_t run_serial(const double *scores, int n)
     r.variance = var_sum / n;
     r.stddev   = sqrt(r.variance);
 
-    /* Median via sorted copy */
     double *sorted = (double *)malloc(sizeof(double) * (size_t)n);
     memcpy(sorted, scores, sizeof(double) * (size_t)n);
 
@@ -72,7 +58,6 @@ calc_result_t run_serial(const double *scores, int n)
         :  sorted[n / 2];
     free(sorted);
 
-    /* Intensive CPU work to amplify serial/parallel difference */
     volatile double dummy = 0.0;
     for (int rep = 0; rep < 50; rep++)
         for (int i = 0; i < n; i++)
@@ -83,9 +68,6 @@ calc_result_t run_serial(const double *scores, int n)
     return r;
 }
 
-/* ==========================================================================
- * PARALLEL (OpenMP) helpers – merge sort
- * ========================================================================== */
 static void merge_arrays(double *arr, int l, int m, int r)
 {
     int     n1 = m - l + 1, n2 = r - m;
@@ -120,9 +102,6 @@ static void parallel_merge_sort(double *arr, int l, int r, int depth)
     merge_arrays(arr, l, m, r);
 }
 
-/* ==========================================================================
- * PARALLEL calculation
- * ========================================================================== */
 calc_result_t run_parallel(const double *scores, int n)
 {
     calc_result_t r;
@@ -132,7 +111,6 @@ calc_result_t run_parallel(const double *scores, int n)
 
     double t_start = omp_get_wtime();
 
-    /* Parallel sum, min, max */
     double p_sum = 0.0, p_min = scores[0], p_max = scores[0];
     #pragma omp parallel for reduction(+:p_sum) reduction(min:p_min) reduction(max:p_max) schedule(static)
     for (int i = 0; i < n; i++) {
@@ -145,7 +123,6 @@ calc_result_t run_parallel(const double *scores, int n)
     r.max  = p_max;
     r.mean = r.sum / n;
 
-    /* Parallel variance + grade distribution */
     double var_sum = 0.0;
     int gA = 0, gB = 0, gC = 0, gD = 0, gF = 0;
     #pragma omp parallel for reduction(+:var_sum,gA,gB,gC,gD,gF) schedule(static)
@@ -164,7 +141,6 @@ calc_result_t run_parallel(const double *scores, int n)
     r.grade_A = gA; r.grade_B = gB; r.grade_C = gC;
     r.grade_D = gD; r.grade_F = gF;
 
-    /* Parallel merge-sort for median */
     double *sorted = (double *)malloc(sizeof(double) * (size_t)n);
     memcpy(sorted, scores, sizeof(double) * (size_t)n);
 
@@ -181,7 +157,6 @@ calc_result_t run_parallel(const double *scores, int n)
         :  sorted[n / 2];
     free(sorted);
 
-    /* Intensive CPU work – parallelised */
     double local_dummy = 0.0;
     #pragma omp parallel for reduction(+:local_dummy) schedule(static)
     for (int rep = 0; rep < 50; rep++)
@@ -193,9 +168,7 @@ calc_result_t run_parallel(const double *scores, int n)
     return r;
 }
 
-/* ==========================================================================
- * JSON serialiser
- * ========================================================================== */
+
 void format_result_json(char *buf, size_t sz,
                         const calc_result_t *r, const char *label,
                         double db_fetch_ms)

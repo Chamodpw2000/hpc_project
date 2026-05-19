@@ -712,10 +712,9 @@ static size_t curl_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata
     return bytes;
 }
 
-/* ── Batch-fetch multiple random users in one HTTP request ──
+/* Batch-fetch multiple random users in one HTTP request 
  * randomuser.me supports ?results=N (up to 5000).
- * Parses the JSON array and fills names[]/emails[] arrays.
- * Returns number of users actually parsed (may be < count on partial failure).
+ 
  */
 static int fetch_random_users_batch(int count,
                                     char names[][256],
@@ -829,7 +828,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 
     srand((unsigned int)time(NULL));
 
-    /* ── 1. Fetch all classes from the classes collection ── */
+    /* 1. Fetch all classes from the classes collection */
     bson_t *q_cls = bson_new();
     mongoc_cursor_t *cur_cls = mongoc_collection_find_with_opts(
         db->classes_collection, q_cls, NULL, NULL);
@@ -863,7 +862,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         return 0;
     }
 
-    /* ── 2. For each class, fetch its subjects ── */
+    /* 2. For each class, fetch its subjects  */
     char ***class_subjects   = (char ***)calloc((size_t)num_classes, sizeof(char **));
     int    *class_subj_count = (int *)calloc((size_t)num_classes, sizeof(int));
 
@@ -922,9 +921,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 
     /* ── 4. Parallel fetch of random users via OpenMP ──
      * Split num_students across OMP threads; each thread batch-fetches
-     * its chunk from randomuser.me using ?results=N (up to 5000/call).
-     * libcurl is thread-safe when each thread uses its own CURL handle. */
-
+     
     /* Pre-allocate arrays for all student names and emails */
     typedef char name_buf_t[256];
     typedef char email_buf_t[256];
@@ -1034,11 +1031,10 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     printf("[OpenMP] Document build completed in %.2f seconds\n",
            t_build_end - t_build_start);
 
-    /* ── 6. Parallel bulk insert with OMP critical sections ──
+    /* 6. Parallel bulk insert with OMP critical sections 
      * mongoc_client is NOT thread-safe, so actual DB calls are
      * guarded by named critical sections.  Each thread prepares
-     * its batch index range outside the critical region; only the
-     * bulk execute enters the critical section.
+     
      */
     #define BULK_BATCH 500
 
