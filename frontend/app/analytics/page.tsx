@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import CorrelationTab from "./CorrelationTab";
 
 const API = "http://localhost:8090";
 
@@ -59,7 +60,7 @@ function formatTime(ms: number): string {
   return `${(ms / 1000).toFixed(4)} s`;
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="bg-zinc-800 rounded-lg p-3 text-center">
       <div className="text-xs text-zinc-400 mb-1">{label}</div>
@@ -68,7 +69,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GradeBar({ grade, count, total, color }: { grade: string; count: number; total: number; color: string }) {
+function GradeBar({ grade, count, total, color }: Readonly<{ grade: string; count: number; total: number; color: string }>) {
   const pct = total > 0 ? (count / total) * 100 : 0;
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -81,7 +82,7 @@ function GradeBar({ grade, count, total, color }: { grade: string; count: number
   );
 }
 
-function ResultPanel({ result, color, totalMs }: { result: CalcResult; color: string; totalMs?: number | null }) {
+function ResultPanel({ result, color, totalMs }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null }>) {
   const total = result.grade_distribution.A_90_100 + result.grade_distribution.B_80_89 +
     result.grade_distribution.C_70_79 + result.grade_distribution.D_60_69 + result.grade_distribution.F_below_60;
 
@@ -142,6 +143,7 @@ function ResultPanel({ result, color, totalMs }: { result: CalcResult; color: st
 export default function AnalyticsPage() {
   const router = useRouter();
 
+  const [activeTab, setActiveTab] = useState<"simple" | "correlation">("simple");
   const [loading, setLoading] = useState<string | null>(null);
   const [seedResult, setSeedResult] = useState<SeedData | null>(null);
   const [compareData, setCompareData] = useState<CompareData | null>(null);
@@ -266,14 +268,42 @@ export default function AnalyticsPage() {
           <p className="text-zinc-400">Performance Comparison</p>
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 mb-8">
+          <button
+            onClick={() => setActiveTab("simple")}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              activeTab === "simple"
+                ? "bg-zinc-700 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Simple Calculations
+          </button>
+          <button
+            onClick={() => setActiveTab("correlation")}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              activeTab === "correlation"
+                ? "bg-zinc-700 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Correlation Based Calculations
+          </button>
+        </div>
+
+        {/* ── Simple Calculations Tab ── */}
+        {activeTab === "simple" && <>
+
         {/* Seed Controls */}
         {/* <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Seed Database with Test Data</h2>
           <p className="text-xs text-zinc-500 mb-4">Each student is assigned a class (round-robin) and gets one score per subject in that class. Names and emails are fetched from randomuser.me.</p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
-              <label className="block text-xs text-zinc-400 mb-1">Number of Students</label>
+              <label htmlFor="num-students" className="block text-xs text-zinc-400 mb-1">Number of Students</label>
               <input
+                id="num-students"
                 type="number"
                 title="Number of students"
                 placeholder="100"
@@ -381,7 +411,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Total Wall Time</div>
-                  <div className="text-sm font-bold text-emerald-400 font-mono">{compareTotalMs != null ? formatTime(compareTotalMs) : "—"}</div>
+                  <div className="text-sm font-bold text-emerald-400 font-mono">{compareTotalMs === null ? "—" : formatTime(compareTotalMs)}</div>
                 </div>
               </div>
             </div>
@@ -393,6 +423,12 @@ export default function AnalyticsPage() {
             </div>
           </>
         )}
+
+        </>}
+
+        {/* ── Correlation Based Calculations Tab ── */}
+        {activeTab === "correlation" && <CorrelationTab />}
+
       </div>
     </div>
   );

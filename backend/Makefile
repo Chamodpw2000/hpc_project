@@ -16,7 +16,9 @@ CONTROLLER_SRC = controllers/response_helper.c \
                  controllers/data_controller.c \
                  controllers/calc_engine.c \
                  controllers/score_controller.c \
-                 controllers/class_controller.c
+                 controllers/class_controller.c \
+                 controllers/correlation_engine.c \
+                 controllers/correlation_controller.c
 
 CONTROLLER_OBJ = controllers/response_helper.o \
                  controllers/health_controller.o \
@@ -24,7 +26,9 @@ CONTROLLER_OBJ = controllers/response_helper.o \
                  controllers/data_controller.o \
                  controllers/calc_engine.o \
                  controllers/score_controller.o \
-                 controllers/class_controller.o
+                 controllers/class_controller.o \
+                 controllers/correlation_engine.o \
+                 controllers/correlation_controller.o
 
 # Local CivetWeb files (self-contained)
 CIVETWEB_LIB = libcivetweb.a
