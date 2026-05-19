@@ -263,12 +263,12 @@ export default function AnalyticsPage() {
         {/* Page heading */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">SwiftScore</h1>
-          <p className="text-zinc-400">Serial vs Parallel Performance Comparison using MongoDB Data</p>
+          <p className="text-zinc-400">Performance Comparison</p>
         </div>
 
         {/* Seed Controls */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">1. Seed Database with Test Data</h2>
+        {/* <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4">Seed Database with Test Data</h2>
           <p className="text-xs text-zinc-500 mb-4">Each student is assigned a class (round-robin) and gets one score per subject in that class. Names and emails are fetched from randomuser.me.</p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
@@ -295,11 +295,11 @@ export default function AnalyticsPage() {
               Seeded {seedResult.students_created} students, {seedResult.scores_created} scores
             </div>
           )}
-        </div>
+        </div> */}
 
         {/* Calculation Buttons */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">2. Run Calculations</h2>
+          <h2 className="text-lg font-semibold mb-4">Get Statistics</h2>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={runSerial}
