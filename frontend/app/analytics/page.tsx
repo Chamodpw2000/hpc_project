@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import CorrelationTab from "./CorrelationTab";
 
 const API = "http://localhost:8090";
 
@@ -426,11 +427,7 @@ export default function AnalyticsPage() {
         </>}
 
         {/* ── Correlation Based Calculations Tab ── */}
-        {activeTab === "correlation" && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-10 text-center">
-            <div className="text-zinc-500 text-sm">Correlation based calculations will appear here.</div>
-          </div>
-        )}
+        {activeTab === "correlation" && <CorrelationTab />}
 
       </div>
     </div>
