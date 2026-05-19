@@ -300,7 +300,7 @@ export default function AnalyticsPage() {
         {/* Page heading */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">SwiftScore</h1>
-          <p className="text-zinc-400">Serial vs Parallel Performance Comparison using MongoDB Data</p>
+          <p className="text-zinc-400">Performance Comparison</p>
         </div>
 
         {/* Tabs */}
@@ -388,11 +388,11 @@ export default function AnalyticsPage() {
               Removed {removeDupResult.students_removed} duplicate student{removeDupResult.students_removed !== 1 ? "s" : ""} and {removeDupResult.scores_removed} score{removeDupResult.scores_removed !== 1 ? "s" : ""}
             </div>
           )}
-        </div>
+        </div> 
 
         {/* Calculation Buttons */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">2. Run Calculations</h2>
+          <h2 className="text-lg font-semibold mb-4">Get Statistics</h2>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={runSerial}
