@@ -10,30 +10,27 @@ interface ScatterPoint  { x: number; y: number; }
 interface CorrelationResult {
   correlation_coefficient: number;
   elapsed_ms: number;
+  db_fetch_ms: number;
   threads_used: number;
-  points: ScatterPoint[];
+  n_pairs: number;
+  data_points: ScatterPoint[];
 }
-interface CorrelationCompare { serial: CorrelationResult; parallel: CorrelationResult; }
-
-// ── Dummy data ────────────────────────────────────────────────────────────────
-
-const DUMMY_POINTS: ScatterPoint[] = [
-  { x: 72, y: 68 }, { x: 85, y: 80 }, { x: 61, y: 55 }, { x: 90, y: 88 },
-  { x: 45, y: 42 }, { x: 78, y: 74 }, { x: 53, y: 50 }, { x: 95, y: 91 },
-  { x: 67, y: 63 }, { x: 82, y: 76 }, { x: 70, y: 67 }, { x: 58, y: 54 },
-  { x: 88, y: 83 }, { x: 74, y: 70 }, { x: 49, y: 46 }, { x: 93, y: 89 },
-  { x: 63, y: 60 }, { x: 76, y: 73 }, { x: 55, y: 51 }, { x: 86, y: 81 },
-  { x: 69, y: 65 }, { x: 80, y: 77 }, { x: 47, y: 43 }, { x: 91, y: 87 },
-  { x: 75, y: 71 },
-];
-
-function makeDummySerial(): CorrelationResult {
-  return { correlation_coefficient: 0.78, elapsed_ms: 45, threads_used: 1, points: DUMMY_POINTS };
+interface CorrelationCompare {
+  serial: CorrelationResult;
+  parallel: CorrelationResult;
+  comparison: {
+    serial_time_ms: number;
+    parallel_time_ms: number;
+    db_fetch_ms: number;
+    speedup: number;
+    serial_threads: number;
+    parallel_threads: number;
+    n_pairs: number;
+    improvement_pct: number;
+  };
 }
 
-function makeDummyParallel(): CorrelationResult {
-  return { correlation_coefficient: 0.78, elapsed_ms: 12, threads_used: 8, points: DUMMY_POINTS };
-}
+const API = "http://localhost:8090";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -161,7 +158,7 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
           Score Distribution
         </div>
         <CorrelationChart
-          points={result.points}
+          points={result.data_points}
           color={chartColor}
           subject1Name={subject1Name}
           subject2Name={subject2Name}
@@ -255,36 +252,53 @@ export default function CorrelationTab() {
   }, [subjects2]);
 
   // ── Button handlers ──
-  function runSerial() {
+  function buildParams() {
+    return new URLSearchParams({ subject1, class1, subject2, class2 }).toString();
+  }
+
+  async function runSerial() {
     setLoading("serial"); setError(null); setCompareResult(null);
-    setTimeout(() => {
-      setSerialResult(makeDummySerial());
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/serial?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setSerialResult(json.data);
       setParallelResult(null);
-      setLoading(null);
-    }, 50);
+    } catch (e) {
+      setError(`Serial correlation failed: ${e}`);
+    }
+    setLoading(null);
   }
 
-  function runParallel() {
+  async function runParallel() {
     setLoading("parallel"); setError(null); setCompareResult(null);
-    setTimeout(() => {
-      setParallelResult(makeDummyParallel());
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/parallel?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setParallelResult(json.data);
       setSerialResult(null);
-      setLoading(null);
-    }, 50);
+    } catch (e) {
+      setError(`Parallel correlation failed: ${e}`);
+    }
+    setLoading(null);
   }
 
-  function runCompare() {
+  async function runCompare() {
     setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null);
-    setTimeout(() => {
-      setCompareResult({ serial: makeDummySerial(), parallel: makeDummyParallel() });
-      setLoading(null);
-    }, 50);
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setCompareResult(json.data);
+    } catch (e) {
+      setError(`Correlation comparison failed: ${e}`);
+    }
+    setLoading(null);
   }
 
   const canRun = !loading && !!subject1 && !!subject2;
-  const speedup = compareResult
-    ? (compareResult.serial.elapsed_ms / compareResult.parallel.elapsed_ms)
-    : 0;
+  const speedup = compareResult ? compareResult.comparison.speedup : 0;
 
   return (
     <>
@@ -429,9 +443,9 @@ export default function CorrelationTab() {
               <div>
                 <div className="text-xs text-zinc-400">Serial Time</div>
                 <div className="text-2xl font-bold text-blue-400 font-mono">
-                  {compareResult.serial.elapsed_ms} ms
+                  {compareResult.comparison.serial_time_ms.toFixed(4)} ms
                 </div>
-                <div className="text-xs text-zinc-500">1 thread</div>
+                <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
               </div>
               <div>
                 <div className="text-xs text-zinc-400">Speedup</div>
@@ -439,16 +453,15 @@ export default function CorrelationTab() {
                   {speedup.toFixed(2)}x
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {(((compareResult.serial.elapsed_ms - compareResult.parallel.elapsed_ms) /
-                    compareResult.serial.elapsed_ms) * 100).toFixed(1)}% faster
+                  {compareResult.comparison.improvement_pct.toFixed(1)}% faster
                 </div>
               </div>
               <div>
                 <div className="text-xs text-zinc-400">Parallel Time</div>
                 <div className="text-2xl font-bold text-purple-400 font-mono">
-                  {compareResult.parallel.elapsed_ms} ms
+                  {compareResult.comparison.parallel_time_ms.toFixed(4)} ms
                 </div>
-                <div className="text-xs text-zinc-500">{compareResult.parallel.threads_used} threads</div>
+                <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
               </div>
             </div>
           </div>
