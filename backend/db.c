@@ -816,7 +816,8 @@ static int fetch_random_users_batch(int count,
 }
 
 /* Seed dummy student and score data for OpenMP testing */
-int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student)
+int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student,
+                       const char *class_filter)
 {
     if (!db || !db->students_collection || !db->scores_collection) {
         return 0;
@@ -855,11 +856,35 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     bson_destroy(q_cls);
 
     if (num_classes == 0) {
-        /* No classes in DB – can't seed meaningfully */
         if (class_names) free(class_names);
         DB_UNLOCK();
         fprintf(stderr, "db_seed_dummy_data: no classes found in database\n");
         return 0;
+    }
+
+    /* If a class filter is specified, keep only that one class */
+    if (class_filter && class_filter[0] != '\0') {
+        int found_idx = -1;
+        for (int ci = 0; ci < num_classes; ci++) {
+            if (strcmp(class_names[ci], class_filter) == 0) {
+                found_idx = ci;
+                break;
+            }
+        }
+        if (found_idx < 0) {
+            for (int ci = 0; ci < num_classes; ci++) free(class_names[ci]);
+            free(class_names);
+            DB_UNLOCK();
+            fprintf(stderr, "db_seed_dummy_data: class '%s' not found\n", class_filter);
+            return -1;
+        }
+        char *kept = class_names[found_idx];
+        for (int ci = 0; ci < num_classes; ci++) {
+            if (ci != found_idx) free(class_names[ci]);
+        }
+        class_names[0] = kept;
+        num_classes = 1;
+        printf("  Filtering seed to class: %s\n", kept);
     }
 
     /* 2. For each class, fetch its subjects  */

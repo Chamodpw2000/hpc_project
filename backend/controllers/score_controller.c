@@ -25,7 +25,8 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
-    int num_students = 100;
+    int  num_students  = 100;
+    char class_name[256] = "";
 
     char buffer[512];
     int  dlen = mg_read(conn, buffer, sizeof(buffer) - 1);
@@ -36,18 +37,49 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
             p = strchr(p, ':');
             if (p) num_students = atoi(p + 1);
         }
+        if ((p = strstr(buffer, "\"class_name\"")) != NULL) {
+            p = strchr(p, ':');
+            if (p) {
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == '"') {
+                    p++;
+                    char *end = strchr(p, '"');
+                    if (end) {
+                        size_t len = (size_t)(end - p);
+                        if (len >= sizeof(class_name)) len = sizeof(class_name) - 1;
+                        memcpy(class_name, p, len);
+                        class_name[len] = '\0';
+                    }
+                }
+            }
+        }
     }
     if (num_students < 1) num_students = 100;
 
-    int total = db_seed_dummy_data(global_db, num_students, 0);
+    const char *filter = class_name[0] ? class_name : NULL;
+    int total = db_seed_dummy_data(global_db, num_students, 0, filter);
+    if (total < 0)
+        return SendErrorResponse(conn, 404,
+            "Specified class not found. Create the class first.");
 
-    char data[512];
-    snprintf(data, sizeof(data),
-        "{\n"
-        "    \"students_created\": %d,\n"
-        "    \"scores_created\": %d\n"
-        "  }",
-        num_students, total);
+    char data[640];
+    if (filter) {
+        snprintf(data, sizeof(data),
+            "{\n"
+            "    \"students_created\": %d,\n"
+            "    \"scores_created\": %d,\n"
+            "    \"class_name\": \"%s\"\n"
+            "  }",
+            num_students, total, class_name);
+    } else {
+        snprintf(data, sizeof(data),
+            "{\n"
+            "    \"students_created\": %d,\n"
+            "    \"scores_created\": %d\n"
+            "  }",
+            num_students, total);
+    }
 
     return SendJSONResponse(conn, "success", "Dummy data seeded successfully", data);
 }
