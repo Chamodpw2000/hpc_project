@@ -42,6 +42,12 @@ function correlationLabel(r: number): { label: string; color: string } {
   return             { label: "Very Weak", color: "text-red-400"    };
 }
 
+function directionLabel(r: number): string {
+  if (r > 0) return "Positive";
+  if (r < 0) return "Negative";
+  return "No";
+}
+
 function trendLinePoints(pts: ScatterPoint[]): { x: number; y: number }[] {
   const n = pts.length;
   if (n < 2) return [];
@@ -127,7 +133,7 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-white uppercase tracking-wider">{modeLabel}</h3>
         <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-mono">
-          {result.threads_used} thread{result.threads_used !== 1 ? "s" : ""}
+          {result.threads_used} thread{result.threads_used === 1 ? "" : "s"}
         </span>
       </div>
 
@@ -138,14 +144,21 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
         <div className="text-4xl font-black text-white font-mono">{r.toFixed(4)}</div>
         <div className={`text-sm font-semibold mt-1 ${labelColor}`}>{label} Correlation</div>
         <div className="text-xs text-zinc-500 mt-1">
-          {r > 0 ? "Positive" : r < 0 ? "Negative" : "No"} linear relationship
+          {directionLabel(r)} linear relationship
+        </div>
+        <div className="mt-2 pt-2 border-t border-zinc-700 text-xs text-zinc-400">
+          Based on <span className="text-white font-semibold font-mono">{result.n_pairs}</span> students with scores in both subjects
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 text-center">
+      <div className="mb-4 grid grid-cols-3 gap-2 text-center">
+        <div className="bg-zinc-800 rounded-lg p-3">
+          <div className="text-xs text-zinc-400">Students</div>
+          <div className="text-sm font-bold text-white font-mono">{result.n_pairs}</div>
+        </div>
         <div className="bg-zinc-800 rounded-lg p-3">
           <div className="text-xs text-zinc-400">Calc Time</div>
-          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms} ms</div>
+          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms.toFixed(4)} ms</div>
         </div>
         <div className="bg-zinc-800 rounded-lg p-3">
           <div className="text-xs text-zinc-400">Threads</div>
@@ -179,14 +192,9 @@ export default function CorrelationTab() {
   const [classes, setClasses]             = useState<string[]>([]);
   const [loadingClasses, setLoadingClasses] = useState(true);
 
-  const [class1, setClass1]               = useState("");
-  const [subjects1, setSubjects1]         = useState<SubjectOption[]>([]);
-  const [loadingSubjects1, setLoadingSubjects1] = useState(false);
+  const [selectedClass, setSelectedClass] = useState("");
+  const [subjects, setSubjects]           = useState<SubjectOption[] | null>(null);
   const [subject1, setSubject1]           = useState("");
-
-  const [class2, setClass2]               = useState("");
-  const [subjects2, setSubjects2]         = useState<SubjectOption[]>([]);
-  const [loadingSubjects2, setLoadingSubjects2] = useState(false);
   const [subject2, setSubject2]           = useState("");
 
   // Action state
@@ -212,48 +220,41 @@ export default function CorrelationTab() {
             .filter((n): n is string => typeof n === "string" && n.trim() !== "")
         ));
         setClasses(names);
-        if (names[0]) { setClass1(names[0]); setClass2(names[0]); }
+        if (names[0]) setSelectedClass(names[0]);
       } catch { /* leave dropdowns empty */ }
       finally { setLoadingClasses(false); }
     }
     loadClasses();
   }, []);
 
-  // ── Fetch subjects when class1 changes ──
+  // null = loading; [] = loaded/empty; [...] = loaded with data
+  const loadingSubjects = subjects === null;
+
+  // ── Fetch subjects when selectedClass changes ──
   useEffect(() => {
-    if (!class1) { setSubjects1([]); setSubject1(""); return; }
-    setLoadingSubjects1(true);
-    setSubject1("");
-    fetch(`/api/subjects?class=${encodeURIComponent(class1)}`, { cache: "no-store" })
+    if (!selectedClass) { setSubjects([]); setSubject1(""); setSubject2(""); return; }
+    setSubjects(null);
+    setSubject1(""); setSubject2("");
+    fetch(`/api/subjects?class=${encodeURIComponent(selectedClass)}`, { cache: "no-store" })
       .then(r => r.json())
-      .then(j => setSubjects1(j.data ?? []))
-      .catch(() => setSubjects1([]))
-      .finally(() => setLoadingSubjects1(false));
-  }, [class1]);
+      .then(j => setSubjects(j.data ?? []))
+      .catch(() => setSubjects([]));
+  }, [selectedClass]);
 
   useEffect(() => {
-    if (subjects1.length > 0) setSubject1(subjects1[0].name);
-  }, [subjects1]);
-
-  // ── Fetch subjects when class2 changes ──
-  useEffect(() => {
-    if (!class2) { setSubjects2([]); setSubject2(""); return; }
-    setLoadingSubjects2(true);
-    setSubject2("");
-    fetch(`/api/subjects?class=${encodeURIComponent(class2)}`, { cache: "no-store" })
-      .then(r => r.json())
-      .then(j => setSubjects2(j.data ?? []))
-      .catch(() => setSubjects2([]))
-      .finally(() => setLoadingSubjects2(false));
-  }, [class2]);
-
-  useEffect(() => {
-    if (subjects2.length > 0) setSubject2(subjects2[0].name);
-  }, [subjects2]);
+    const list = subjects ?? [];
+    if (list.length > 0) {
+      setSubject1(list[0].name);
+      setSubject2(list.length > 1 ? list[1].name : list[0].name);
+    }
+  }, [subjects]);
 
   // ── Button handlers ──
   function buildParams() {
-    return new URLSearchParams({ subject1, class1, subject2, class2 }).toString();
+    return new URLSearchParams({
+      subject1, class1: selectedClass,
+      subject2, class2: selectedClass,
+    }).toString();
   }
 
   async function runSerial() {
@@ -305,70 +306,59 @@ export default function CorrelationTab() {
       {/* ── Subject Selectors ── */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">1. Select Subjects</h2>
-        <div className="flex flex-wrap items-start gap-4">
 
-          {/* Subject 1 */}
+        {/* Class selector (shared) */}
+        <div className="mb-4">
+          <div className="text-xs text-zinc-400 mb-1 font-semibold">Class</div>
+          <select
+            value={selectedClass}
+            onChange={e => setSelectedClass(e.target.value)}
+            disabled={loadingClasses}
+            aria-label="Class"
+            className={SELECT_CLS + " max-w-xs"}
+          >
+            <option value="">— Class —</option>
+            {classes.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        {/* Subject pair */}
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex-1 min-w-48">
             <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 1</div>
-            <div className="flex flex-col gap-2">
-              <select
-                value={class1}
-                onChange={e => setClass1(e.target.value)}
-                disabled={loadingClasses}
-                aria-label="Class for Subject 1"
-                className={SELECT_CLS}
-              >
-                <option value="">— Class —</option>
-                {classes.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select
-                value={subject1}
-                onChange={e => setSubject1(e.target.value)}
-                disabled={!class1 || loadingSubjects1}
-                aria-label="Subject 1"
-                className={SELECT_CLS}
-              >
-                <option value="">— Subject —</option>
-                {subjects1.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-              </select>
-            </div>
+            <select
+              value={subject1}
+              onChange={e => setSubject1(e.target.value)}
+              disabled={!selectedClass || loadingSubjects}
+              aria-label="Subject 1"
+              className={SELECT_CLS}
+            >
+              <option value="">— Subject —</option>
+              {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
           </div>
 
-          {/* VS divider */}
-          <div className="flex items-center pt-8">
+          <div className="flex items-center pt-4">
             <span className="text-zinc-600 font-bold text-lg px-2">vs</span>
           </div>
 
-          {/* Subject 2 */}
           <div className="flex-1 min-w-48">
             <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 2</div>
-            <div className="flex flex-col gap-2">
-              <select
-                value={class2}
-                onChange={e => setClass2(e.target.value)}
-                disabled={loadingClasses}
-                aria-label="Class for Subject 2"
-                className={SELECT_CLS}
-              >
-                <option value="">— Class —</option>
-                {classes.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select
-                value={subject2}
-                onChange={e => setSubject2(e.target.value)}
-                disabled={!class2 || loadingSubjects2}
-                aria-label="Subject 2"
-                className={SELECT_CLS}
-              >
-                <option value="">— Subject —</option>
-                {subjects2.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-              </select>
-            </div>
+            <select
+              value={subject2}
+              onChange={e => setSubject2(e.target.value)}
+              disabled={!selectedClass || loadingSubjects}
+              aria-label="Subject 2"
+              className={SELECT_CLS}
+            >
+              <option value="">— Subject —</option>
+              {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+            </select>
           </div>
         </div>
 
         {(!subject1 || !subject2) && !loadingClasses && (
-          <p className="text-xs text-zinc-500 mt-3">Select both subjects to enable calculations.</p>
+          <p className="text-xs text-zinc-500 mt-3">Select a class and both subjects to enable calculations.</p>
         )}
       </div>
 
@@ -435,7 +425,7 @@ export default function CorrelationTab() {
       {compareResult && (
         <>
           {/* Speedup banner */}
-          <div className="bg-gradient-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
+          <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
             <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">
               Performance Comparison
             </div>
@@ -463,6 +453,9 @@ export default function CorrelationTab() {
                 </div>
                 <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
               </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
+              <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
             </div>
           </div>
 
