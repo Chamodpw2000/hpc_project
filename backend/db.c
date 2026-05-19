@@ -194,7 +194,7 @@ int db_create_student(db_connection_t *db, const char *name, const char *email, 
     BSON_APPEND_UTF8(doc, "student_id", student_id);
     BSON_APPEND_UTF8(doc, "name", name);
     BSON_APPEND_UTF8(doc, "email", email);
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->students_collection, doc, NULL, NULL, &error);
@@ -229,7 +229,7 @@ int db_create_student_with_class(db_connection_t *db, const char *name, const ch
     if (class_name && class_name[0] != '\0') {
         BSON_APPEND_UTF8(doc, "class_name", class_name);
     }
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->students_collection, doc, NULL, NULL, &error);
@@ -476,7 +476,7 @@ int db_update_student(db_connection_t *db, const char *student_id, const char *n
     bson_t *update = BCON_NEW("$set", "{",
         "name", BCON_UTF8(name),
         "email", BCON_UTF8(email),
-        "updated_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+        "updated_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}");
 
     bool success = mongoc_collection_update_one(
@@ -521,6 +521,161 @@ int db_delete_student(db_connection_t *db, const char *student_id)
     return 1;
 }
 
+/* Remove duplicate students by student_id, keeping the first insertion.
+ * All scores for affected student_ids are also deleted.
+ * Returns number of student documents removed, or -1 on error. */
+int db_remove_duplicate_students(db_connection_t *db, int *out_scores_removed)
+{
+    if (out_scores_removed) *out_scores_removed = 0;
+    if (!db || !db->students_collection || !db->scores_collection) return -1;
+
+    DB_LOCK();
+
+    /* Fetch all students sorted by student_id asc, then _id asc so the first
+       inserted document for each student_id comes first in iteration order. */
+    bson_t *query = bson_new();
+    bson_t sort_doc = BSON_INITIALIZER;
+    bson_t proj_doc = BSON_INITIALIZER;
+    bson_t *opts = bson_new();
+
+    bson_init(&sort_doc);
+    BSON_APPEND_INT32(&sort_doc, "student_id", 1);
+    BSON_APPEND_INT32(&sort_doc, "_id", 1);
+    BSON_APPEND_DOCUMENT(opts, "sort", &sort_doc);
+
+    bson_init(&proj_doc);
+    BSON_APPEND_INT32(&proj_doc, "student_id", 1);
+    BSON_APPEND_DOCUMENT(opts, "projection", &proj_doc);
+
+    mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(
+        db->students_collection, query, opts, NULL);
+
+    /* Dynamic arrays for duplicate OIDs and affected student_ids */
+    bson_oid_t *dup_oids     = NULL;
+    int         dup_count    = 0, dup_cap = 0;
+    char      **dup_sids     = NULL;
+    int         dup_sid_cnt  = 0, dup_sid_cap = 0;
+
+    char last_sid[256] = "";
+    int  is_first = 1;
+
+    const bson_t *doc;
+    while (mongoc_cursor_next(cursor, &doc)) {
+        bson_iter_t iter;
+        char curr_sid[256] = "";
+        bson_oid_t curr_oid;
+
+        if (bson_iter_init_find(&iter, doc, "student_id") &&
+            BSON_ITER_HOLDS_UTF8(&iter)) {
+            uint32_t slen;
+            const char *s = bson_iter_utf8(&iter, &slen);
+            strncpy(curr_sid, s, sizeof(curr_sid) - 1);
+        }
+        if (bson_iter_init_find(&iter, doc, "_id") &&
+            BSON_ITER_HOLDS_OID(&iter)) {
+            memcpy(&curr_oid, bson_iter_oid(&iter), sizeof(bson_oid_t));
+        }
+
+        if (!is_first && strcmp(curr_sid, last_sid) == 0) {
+            /* Duplicate – queue this document's OID for deletion */
+            if (dup_count >= dup_cap) {
+                dup_cap = dup_cap ? dup_cap * 2 : 64;
+                dup_oids = (bson_oid_t *)realloc(dup_oids, (size_t)dup_cap * sizeof(bson_oid_t));
+            }
+            memcpy(&dup_oids[dup_count++], &curr_oid, sizeof(bson_oid_t));
+
+            /* Track this student_id (once) for score cleanup */
+            int found = 0;
+            for (int i = 0; i < dup_sid_cnt; i++) {
+                if (strcmp(dup_sids[i], curr_sid) == 0) { found = 1; break; }
+            }
+            if (!found) {
+                if (dup_sid_cnt >= dup_sid_cap) {
+                    dup_sid_cap = dup_sid_cap ? dup_sid_cap * 2 : 32;
+                    dup_sids = (char **)realloc(dup_sids, (size_t)dup_sid_cap * sizeof(char *));
+                }
+                dup_sids[dup_sid_cnt++] = strdup(curr_sid);
+            }
+        } else {
+            strncpy(last_sid, curr_sid, sizeof(last_sid) - 1);
+            is_first = 0;
+        }
+    }
+    mongoc_cursor_destroy(cursor);
+    bson_destroy(query);
+    bson_destroy(opts);
+
+    int students_removed = 0;
+
+    if (dup_count > 0) {
+        /* Build { "_id": { "$in": [oid, ...] } } */
+        bson_t del_query = BSON_INITIALIZER;
+        bson_t in_cond, oid_arr;
+        bson_init(&del_query);
+        bson_append_document_begin(&del_query, "_id", -1, &in_cond);
+        bson_append_array_begin(&in_cond, "$in", -1, &oid_arr);
+        for (int i = 0; i < dup_count; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", i);
+            BSON_APPEND_OID(&oid_arr, key, &dup_oids[i]);
+        }
+        bson_append_array_end(&in_cond, &oid_arr);
+        bson_append_document_end(&del_query, &in_cond);
+
+        bson_error_t err;
+        bson_t reply = BSON_INITIALIZER;
+        bool ok = mongoc_collection_delete_many(
+            db->students_collection, &del_query, NULL, &reply, &err);
+        if (ok) {
+            bson_iter_t ri;
+            if (bson_iter_init_find(&ri, &reply, "deletedCount"))
+                students_removed = (int)bson_iter_as_int64(&ri);
+        } else {
+            fprintf(stderr, "db_remove_duplicate_students (students): %s\n", err.message);
+        }
+        bson_destroy(&reply);
+        bson_destroy(&del_query);
+    }
+
+    /* Delete all scores for affected student_ids */
+    if (dup_sid_cnt > 0) {
+        bson_t score_del = BSON_INITIALIZER;
+        bson_t in_cond, sid_arr;
+        bson_init(&score_del);
+        bson_append_document_begin(&score_del, "student_id", -1, &in_cond);
+        bson_append_array_begin(&in_cond, "$in", -1, &sid_arr);
+        for (int i = 0; i < dup_sid_cnt; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", i);
+            BSON_APPEND_UTF8(&sid_arr, key, dup_sids[i]);
+        }
+        bson_append_array_end(&in_cond, &sid_arr);
+        bson_append_document_end(&score_del, &in_cond);
+
+        bson_error_t err;
+        bson_t reply = BSON_INITIALIZER;
+        bool ok = mongoc_collection_delete_many(
+            db->scores_collection, &score_del, NULL, &reply, &err);
+        if (ok && out_scores_removed) {
+            bson_iter_t ri;
+            if (bson_iter_init_find(&ri, &reply, "deletedCount"))
+                *out_scores_removed = (int)bson_iter_as_int64(&ri);
+        } else if (!ok) {
+            fprintf(stderr, "db_remove_duplicate_students (scores): %s\n", err.message);
+        }
+        bson_destroy(&reply);
+        bson_destroy(&score_del);
+    }
+
+    /* Cleanup */
+    free(dup_oids);
+    for (int i = 0; i < dup_sid_cnt; i++) free(dup_sids[i]);
+    free(dup_sids);
+
+    DB_UNLOCK();
+    return students_removed;
+}
+
 /* Add score for a student */
 int db_add_score(db_connection_t *db, const char *student_id, const char *subject, double score)
 {
@@ -535,7 +690,7 @@ int db_add_score(db_connection_t *db, const char *student_id, const char *subjec
     BSON_APPEND_UTF8(doc, "student_id", student_id);
     BSON_APPEND_UTF8(doc, "subject", subject);
     BSON_APPEND_DOUBLE(doc, "score", score);
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->scores_collection, doc, NULL, NULL, &error);
@@ -563,12 +718,12 @@ int db_update_score(db_connection_t *db, const char *student_id, const char *sub
     bson_t *update = BCON_NEW(
         "$set", "{",
             "score", BCON_DOUBLE(score),
-            "updated_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+            "updated_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}",
         "$setOnInsert", "{",
             "student_id", BCON_UTF8(student_id),
             "subject",    BCON_UTF8(subject),
-            "created_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+            "created_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}"
     );
     bson_t *opts = BCON_NEW("upsert", BCON_BOOL(true));
@@ -816,7 +971,8 @@ static int fetch_random_users_batch(int count,
 }
 
 /* Seed dummy student and score data for OpenMP testing */
-int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student)
+int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student,
+                       const char *class_filter)
 {
     if (!db || !db->students_collection || !db->scores_collection) {
         return 0;
@@ -855,11 +1011,35 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
     bson_destroy(q_cls);
 
     if (num_classes == 0) {
-        /* No classes in DB – can't seed meaningfully */
         if (class_names) free(class_names);
         DB_UNLOCK();
         fprintf(stderr, "db_seed_dummy_data: no classes found in database\n");
         return 0;
+    }
+
+    /* If a class filter is specified, keep only that one class */
+    if (class_filter && class_filter[0] != '\0') {
+        int found_idx = -1;
+        for (int ci = 0; ci < num_classes; ci++) {
+            if (strcmp(class_names[ci], class_filter) == 0) {
+                found_idx = ci;
+                break;
+            }
+        }
+        if (found_idx < 0) {
+            for (int ci = 0; ci < num_classes; ci++) free(class_names[ci]);
+            free(class_names);
+            DB_UNLOCK();
+            fprintf(stderr, "db_seed_dummy_data: class '%s' not found\n", class_filter);
+            return -1;
+        }
+        char *kept = class_names[found_idx];
+        for (int ci = 0; ci < num_classes; ci++) {
+            if (ci != found_idx) free(class_names[ci]);
+        }
+        class_names[0] = kept;
+        num_classes = 1;
+        printf("  Filtering seed to class: %s\n", kept);
     }
 
     /* 2. For each class, fetch its subjects  */
@@ -891,11 +1071,14 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         bson_destroy(q_sub);
     }
 
-    /* ── 3. Find the last student_id to continue numbering ── */
+    /* ── 3. Find the last inserted student to continue numbering ──
+     * Sort by _id descending (ObjectId encodes insertion time and is always
+     * indexed) – O(log n) vs a full collection scan on student_id string. */
     int last_id_num = 0;
     {
-        bson_t *opts = BCON_NEW("sort", "{", "student_id", BCON_INT32(-1), "}",
-                                "limit", BCON_INT64(1));
+        bson_t *opts = BCON_NEW("sort",       "{", "_id", BCON_INT32(-1), "}",
+                                "limit",      BCON_INT64(1),
+                                "projection", "{", "student_id", BCON_INT32(1), "}");
         bson_t *q = bson_new();
         mongoc_cursor_t *cur = mongoc_collection_find_with_opts(
             db->students_collection, q, opts, NULL);
@@ -913,7 +1096,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         bson_destroy(q);
         bson_destroy(opts);
     }
-    printf("  Last existing student_id: S%05d (starting from S%05d)\n",
+    printf("  Last inserted student_id: S%05d → new IDs start at S%05d\n",
            last_id_num, last_id_num + 1);
 
     /* Release DB lock during the network-heavy fetch phase */
@@ -1008,7 +1191,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
             BSON_APPEND_UTF8(sdoc, "name",       all_names[i]);
             BSON_APPEND_UTF8(sdoc, "email",      all_emails[i]);
             BSON_APPEND_UTF8(sdoc, "class_name", cname);
-            BSON_APPEND_DATE_TIME(sdoc, "created_at", bson_get_monotonic_time());
+            BSON_APPEND_DATE_TIME(sdoc, "created_at", (int64_t)time(NULL) * 1000LL);
             student_docs[i] = sdoc;
 
             /* ── Build score BSON documents for each subject ── */
@@ -1021,7 +1204,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
                 BSON_APPEND_UTF8(scdoc, "student_id", sid);
                 BSON_APPEND_UTF8(scdoc, "subject",    class_subjects[ci][j]);
                 BSON_APPEND_DOUBLE(scdoc, "score",     score_val);
-                BSON_APPEND_DATE_TIME(scdoc, "created_at", bson_get_monotonic_time());
+                BSON_APPEND_DATE_TIME(scdoc, "created_at", (int64_t)time(NULL) * 1000LL);
                 score_docs[off + j] = scdoc;
             }
         }

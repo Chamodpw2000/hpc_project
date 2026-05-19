@@ -51,8 +51,17 @@ int db_delete_score(db_connection_t *db, const char *student_id, const char *sub
 char* db_get_student_scores(db_connection_t *db, const char *student_id);
 char* db_get_all_scores(db_connection_t *db);
 
-/* Seed dummy data for OpenMP testing */
-int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student);
+/* Remove duplicate students (by student_id), keeping the first occurrence.
+ * Also removes all scores for student_ids that had duplicates.
+ * Returns number of duplicate student documents removed, or -1 on error. */
+int db_remove_duplicate_students(db_connection_t *db, int *out_scores_removed);
+
+/* Seed dummy data for OpenMP testing.
+ * Pass class_filter != NULL to restrict all students to that one class;
+ * NULL means round-robin across all existing classes.
+ * Returns total scores inserted, or -1 if class_filter names a non-existent class. */
+int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student,
+                       const char *class_filter);
 
 /* Fetch all scores as a raw double array for computation */
 double* db_get_scores_array(db_connection_t *db, int *out_count);

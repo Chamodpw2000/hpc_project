@@ -25,10 +25,15 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
-    int num_students = 100;
+    int  num_students  = 100;
+    char class_name[256] = "";
 
-    char buffer[512];
-    int  dlen = mg_read(conn, buffer, sizeof(buffer) - 1);
+    char buffer[1024];
+    int  total_read = 0, n;
+    while ((n = mg_read(conn, buffer + total_read,
+                        (int)sizeof(buffer) - 1 - total_read)) > 0)
+        total_read += n;
+    int  dlen = total_read;
     if (dlen > 0) {
         buffer[dlen] = '\0';
         char *p;
@@ -36,20 +41,79 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
             p = strchr(p, ':');
             if (p) num_students = atoi(p + 1);
         }
+        if ((p = strstr(buffer, "\"class_name\"")) != NULL) {
+            p = strchr(p, ':');
+            if (p) {
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                if (*p == '"') {
+                    p++;
+                    char *end = strchr(p, '"');
+                    if (end) {
+                        size_t len = (size_t)(end - p);
+                        if (len >= sizeof(class_name)) len = sizeof(class_name) - 1;
+                        memcpy(class_name, p, len);
+                        class_name[len] = '\0';
+                    }
+                }
+            }
+        }
     }
     if (num_students < 1) num_students = 100;
 
-    int total = db_seed_dummy_data(global_db, num_students, 0);
+    const char *filter = class_name[0] ? class_name : NULL;
+    int total = db_seed_dummy_data(global_db, num_students, 0, filter);
+    if (total < 0)
+        return SendErrorResponse(conn, 404,
+            "Specified class not found. Create the class first.");
 
-    char data[512];
-    snprintf(data, sizeof(data),
-        "{\n"
-        "    \"students_created\": %d,\n"
-        "    \"scores_created\": %d\n"
-        "  }",
-        num_students, total);
+    char data[640];
+    if (filter) {
+        snprintf(data, sizeof(data),
+            "{\n"
+            "    \"students_created\": %d,\n"
+            "    \"scores_created\": %d,\n"
+            "    \"class_name\": \"%s\"\n"
+            "  }",
+            num_students, total, class_name);
+    } else {
+        snprintf(data, sizeof(data),
+            "{\n"
+            "    \"students_created\": %d,\n"
+            "    \"scores_created\": %d\n"
+            "  }",
+            num_students, total);
+    }
 
     return SendJSONResponse(conn, "success", "Dummy data seeded successfully", data);
+}
+
+int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "DELETE") != 0)
+        return SendErrorResponse(conn, 405, "Only DELETE method supported");
+
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    int scores_removed = 0;
+    int students_removed = db_remove_duplicate_students(global_db, &scores_removed);
+
+    if (students_removed < 0)
+        return SendErrorResponse(conn, 500, "Failed to remove duplicate students");
+
+    char data[256];
+    snprintf(data, sizeof(data),
+        "{\n"
+        "    \"students_removed\": %d,\n"
+        "    \"scores_removed\": %d\n"
+        "  }",
+        students_removed, scores_removed);
+
+    return SendJSONResponse(conn, "success", "Duplicate students removed", data);
 }
 
 int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
