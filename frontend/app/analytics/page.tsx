@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import CorrelationTab from "./CorrelationTab";
 
@@ -54,6 +54,7 @@ interface CompareData {
 interface SeedData {
   students_created: number;
   scores_created: number;
+  class_name?: string;
 }
 
 function formatTime(ms: number): string {
@@ -144,8 +145,27 @@ export default function AnalyticsPage() {
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<"simple" | "correlation">("simple");
+  const [seedClasses, setSeedClasses] = useState<string[]>([]);
+  const [seedClass, setSeedClass]     = useState("");
+
+  useEffect(() => {
+    fetch("/api/classes", { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => {
+        const raw: unknown[] = j.data ?? [];
+        const names = Array.from(new Set(
+          raw
+            .map(c => typeof c === "string" ? c : (c as { name: string })?.name)
+            .filter((n): n is string => typeof n === "string" && n.trim() !== "")
+        ));
+        setSeedClasses(names);
+      })
+      .catch(() => { /* leave empty */ });
+  }, []);
+
   const [loading, setLoading] = useState<string | null>(null);
   const [seedResult, setSeedResult] = useState<SeedData | null>(null);
+  const [removeDupResult, setRemoveDupResult] = useState<{ students_removed: number; scores_removed: number } | null>(null);
   const [compareData, setCompareData] = useState<CompareData | null>(null);
   const [serialOnly, setSerialOnly] = useState<CalcResult | null>(null);
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
@@ -155,14 +175,29 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
 
+  async function removeDuplicates() {
+    setLoading("remove-dups");
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/students/remove-duplicates`, { method: "DELETE" });
+      const json = await res.json();
+      setRemoveDupResult(json.data);
+    } catch (e) {
+      setError(`Remove duplicates failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   async function seedData() {
     setLoading("seed");
     setError(null);
     try {
+      const body: Record<string, unknown> = { num_students: numStudents };
+      if (seedClass) body.class_name = seedClass;
       const res = await fetch(`${API}/api/seed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num_students: numStudents }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       setSeedResult(json.data);
@@ -296,9 +331,12 @@ export default function AnalyticsPage() {
         {activeTab === "simple" && <>
 
         {/* Seed Controls */}
-        {/* <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Seed Database with Test Data</h2>
-          <p className="text-xs text-zinc-500 mb-4">Each student is assigned a class (round-robin) and gets one score per subject in that class. Names and emails are fetched from randomuser.me.</p>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4">1. Seed Database with Test Data</h2>
+          <p className="text-xs text-zinc-500 mb-4">
+            Each student gets one score per subject in their class. Names and emails are fetched from randomuser.me.
+            {!seedClass && " If no class is selected, students are distributed round-robin across all classes."}
+          </p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
               <label htmlFor="num-students" className="block text-xs text-zinc-400 mb-1">Number of Students</label>
@@ -312,6 +350,18 @@ export default function AnalyticsPage() {
                 className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-28 text-white font-mono"
               />
             </div>
+            <div>
+              <label htmlFor="seed-class" className="block text-xs text-zinc-400 mb-1">Target Class <span className="text-zinc-600">(optional)</span></label>
+              <select
+                id="seed-class"
+                value={seedClass}
+                onChange={e => setSeedClass(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm focus:border-indigo-500 focus:outline-none w-36"
+              >
+                <option value="">— All classes —</option>
+                {seedClasses.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
             <button
               onClick={seedData}
               disabled={loading !== null}
@@ -319,13 +369,26 @@ export default function AnalyticsPage() {
             >
               {loading === "seed" ? "Seeding..." : "Seed Data"}
             </button>
+            <button
+              onClick={removeDuplicates}
+              disabled={loading !== null}
+              className="bg-red-700 hover:bg-red-600 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "remove-dups" ? "Removing..." : "Remove Duplicates"}
+            </button>
           </div>
           {seedResult && (
             <div className="mt-3 text-sm text-emerald-400 font-mono">
               Seeded {seedResult.students_created} students, {seedResult.scores_created} scores
+              {seedResult.class_name && <span className="text-zinc-400"> → class <span className="text-white">{seedResult.class_name}</span></span>}
             </div>
           )}
-        </div> */}
+          {removeDupResult && (
+            <div className="mt-3 text-sm text-red-400 font-mono">
+              Removed {removeDupResult.students_removed} duplicate student{removeDupResult.students_removed !== 1 ? "s" : ""} and {removeDupResult.scores_removed} score{removeDupResult.scores_removed !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div> 
 
         {/* Calculation Buttons */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
