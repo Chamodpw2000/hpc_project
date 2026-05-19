@@ -28,8 +28,12 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     int  num_students  = 100;
     char class_name[256] = "";
 
-    char buffer[512];
-    int  dlen = mg_read(conn, buffer, sizeof(buffer) - 1);
+    char buffer[1024];
+    int  total_read = 0, n;
+    while ((n = mg_read(conn, buffer + total_read,
+                        (int)sizeof(buffer) - 1 - total_read)) > 0)
+        total_read += n;
+    int  dlen = total_read;
     if (dlen > 0) {
         buffer[dlen] = '\0';
         char *p;

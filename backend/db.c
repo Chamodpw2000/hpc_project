@@ -194,7 +194,7 @@ int db_create_student(db_connection_t *db, const char *name, const char *email, 
     BSON_APPEND_UTF8(doc, "student_id", student_id);
     BSON_APPEND_UTF8(doc, "name", name);
     BSON_APPEND_UTF8(doc, "email", email);
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->students_collection, doc, NULL, NULL, &error);
@@ -229,7 +229,7 @@ int db_create_student_with_class(db_connection_t *db, const char *name, const ch
     if (class_name && class_name[0] != '\0') {
         BSON_APPEND_UTF8(doc, "class_name", class_name);
     }
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->students_collection, doc, NULL, NULL, &error);
@@ -476,7 +476,7 @@ int db_update_student(db_connection_t *db, const char *student_id, const char *n
     bson_t *update = BCON_NEW("$set", "{",
         "name", BCON_UTF8(name),
         "email", BCON_UTF8(email),
-        "updated_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+        "updated_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}");
 
     bool success = mongoc_collection_update_one(
@@ -535,7 +535,7 @@ int db_add_score(db_connection_t *db, const char *student_id, const char *subjec
     BSON_APPEND_UTF8(doc, "student_id", student_id);
     BSON_APPEND_UTF8(doc, "subject", subject);
     BSON_APPEND_DOUBLE(doc, "score", score);
-    BSON_APPEND_DATE_TIME(doc, "created_at", bson_get_monotonic_time());
+    BSON_APPEND_DATE_TIME(doc, "created_at", (int64_t)time(NULL) * 1000LL);
 
     bool success = mongoc_collection_insert_one(
         db->scores_collection, doc, NULL, NULL, &error);
@@ -563,12 +563,12 @@ int db_update_score(db_connection_t *db, const char *student_id, const char *sub
     bson_t *update = BCON_NEW(
         "$set", "{",
             "score", BCON_DOUBLE(score),
-            "updated_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+            "updated_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}",
         "$setOnInsert", "{",
             "student_id", BCON_UTF8(student_id),
             "subject",    BCON_UTF8(subject),
-            "created_at", BCON_DATE_TIME(bson_get_monotonic_time()),
+            "created_at", BCON_DATE_TIME((int64_t)time(NULL) * 1000LL),
         "}"
     );
     bson_t *opts = BCON_NEW("upsert", BCON_BOOL(true));
@@ -1033,7 +1033,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
             BSON_APPEND_UTF8(sdoc, "name",       all_names[i]);
             BSON_APPEND_UTF8(sdoc, "email",      all_emails[i]);
             BSON_APPEND_UTF8(sdoc, "class_name", cname);
-            BSON_APPEND_DATE_TIME(sdoc, "created_at", bson_get_monotonic_time());
+            BSON_APPEND_DATE_TIME(sdoc, "created_at", (int64_t)time(NULL) * 1000LL);
             student_docs[i] = sdoc;
 
             /* ── Build score BSON documents for each subject ── */
@@ -1046,7 +1046,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
                 BSON_APPEND_UTF8(scdoc, "student_id", sid);
                 BSON_APPEND_UTF8(scdoc, "subject",    class_subjects[ci][j]);
                 BSON_APPEND_DOUBLE(scdoc, "score",     score_val);
-                BSON_APPEND_DATE_TIME(scdoc, "created_at", bson_get_monotonic_time());
+                BSON_APPEND_DATE_TIME(scdoc, "created_at", (int64_t)time(NULL) * 1000LL);
                 score_docs[off + j] = scdoc;
             }
         }
