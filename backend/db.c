@@ -1071,11 +1071,14 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         bson_destroy(q_sub);
     }
 
-    /* ── 3. Find the last student_id to continue numbering ── */
+    /* ── 3. Find the last inserted student to continue numbering ──
+     * Sort by _id descending (ObjectId encodes insertion time and is always
+     * indexed) – O(log n) vs a full collection scan on student_id string. */
     int last_id_num = 0;
     {
-        bson_t *opts = BCON_NEW("sort", "{", "student_id", BCON_INT32(-1), "}",
-                                "limit", BCON_INT64(1));
+        bson_t *opts = BCON_NEW("sort",       "{", "_id", BCON_INT32(-1), "}",
+                                "limit",      BCON_INT64(1),
+                                "projection", "{", "student_id", BCON_INT32(1), "}");
         bson_t *q = bson_new();
         mongoc_cursor_t *cur = mongoc_collection_find_with_opts(
             db->students_collection, q, opts, NULL);
@@ -1093,7 +1096,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
         bson_destroy(q);
         bson_destroy(opts);
     }
-    printf("  Last existing student_id: S%05d (starting from S%05d)\n",
+    printf("  Last inserted student_id: S%05d → new IDs start at S%05d\n",
            last_id_num, last_id_num + 1);
 
     /* Release DB lock during the network-heavy fetch phase */
