@@ -1490,3 +1490,214 @@ int db_rename_subject(db_connection_t *db, const char *old_name, const char *cla
     return 1;
 }
 
+/* ============================================================
+ * PAIRED SCORE FETCH  (for Pearson correlation)
+ * ============================================================ */
+
+/* Comparator for qsort on char* arrays */
+static int cmp_str_ptr(const void *a, const void *b)
+{
+    const char *sa = *(const char **)a;
+    const char *sb = *(const char **)b;
+    return strcmp(sa, sb);
+}
+
+/* Internal: (student_id, score) tuple used during join */
+typedef struct { char student_id[64]; double score; } subj_score_t;
+
+static int cmp_subj_score(const void *a, const void *b)
+{
+    return strcmp(((const subj_score_t *)a)->student_id,
+                  ((const subj_score_t *)b)->student_id);
+}
+
+/* Binary search in a sorted char* array */
+static int str_in_sorted(char **arr, int n, const char *key)
+{
+    int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        int c   = strcmp(arr[mid], key);
+        if (c == 0) return 1;
+        if (c < 0)  lo = mid + 1;
+        else        hi = mid - 1;
+    }
+    return 0;
+}
+
+/*
+ * Fetch all student_id strings for a class into a sorted char** array.
+ * Must be called with DB_LOCK held.
+ * Returns count (may be 0). Caller frees each element and the array.
+ */
+static int fetch_class_student_ids(mongoc_collection_t *col,
+                                    const char *class_name,
+                                    char ***out_ids, size_t *out_cap)
+{
+    *out_cap = 256;
+    *out_ids = (char **)malloc(sizeof(char *) * (*out_cap));
+    if (!*out_ids) return 0;
+
+    bson_t *q    = BCON_NEW("class_name", class_name);
+    bson_t *proj = BCON_NEW("projection", "{",
+                            "student_id", BCON_INT32(1),
+                            "_id",        BCON_INT32(0), "}");
+    mongoc_cursor_t *cur = mongoc_collection_find_with_opts(col, q, proj, NULL);
+    bson_destroy(proj);
+    bson_destroy(q);
+
+    int count = 0;
+    const bson_t *doc;
+    while (mongoc_cursor_next(cur, &doc)) {
+        bson_iter_t it;
+        if (!bson_iter_init_find(&it, doc, "student_id") ||
+            !BSON_ITER_HOLDS_UTF8(&it)) continue;
+        if ((size_t)count >= *out_cap) {
+            *out_cap *= 2;
+            char **tmp = (char **)realloc(*out_ids, sizeof(char *) * (*out_cap));
+            if (!tmp) break;
+            *out_ids = tmp;
+        }
+        (*out_ids)[count++] = strdup(bson_iter_utf8(&it, NULL));
+    }
+    mongoc_cursor_destroy(cur);
+
+    if (count > 1)
+        qsort(*out_ids, (size_t)count, sizeof(char *), cmp_str_ptr);
+    return count;
+}
+
+/*
+ * Fetch scores for a subject, keeping only students in class_ids[].
+ * Must be called with DB_LOCK held.
+ * Returns count. Caller frees *out.
+ */
+static int fetch_subject_scores(mongoc_collection_t *col,
+                                 const char *subject,
+                                 char **class_ids, int class_id_n,
+                                 subj_score_t **out)
+{
+    size_t cap = 512;
+    *out = (subj_score_t *)malloc(sizeof(subj_score_t) * cap);
+    if (!*out) return 0;
+
+    bson_t *q    = BCON_NEW("subject", subject);
+    bson_t *opts = BCON_NEW("projection", "{",
+                            "student_id", BCON_INT32(1),
+                            "score",      BCON_INT32(1),
+                            "_id",        BCON_INT32(0), "}",
+                            "batchSize",  BCON_INT32(5000));
+    mongoc_cursor_t *cur = mongoc_collection_find_with_opts(col, q, opts, NULL);
+    bson_destroy(opts);
+    bson_destroy(q);
+
+    int count = 0;
+    const bson_t *doc;
+    while (mongoc_cursor_next(cur, &doc)) {
+        bson_iter_t it_id, it_sc;
+        if (!bson_iter_init_find(&it_id, doc, "student_id") ||
+            !BSON_ITER_HOLDS_UTF8(&it_id)) continue;
+        const char *sid = bson_iter_utf8(&it_id, NULL);
+        if (!str_in_sorted(class_ids, class_id_n, sid)) continue;
+
+        if (!bson_iter_init_find(&it_sc, doc, "score")) continue;
+        double sc = 0.0;
+        if      (BSON_ITER_HOLDS_DOUBLE(&it_sc)) sc = bson_iter_double(&it_sc);
+        else if (BSON_ITER_HOLDS_INT32 (&it_sc)) sc = (double)bson_iter_int32(&it_sc);
+        else if (BSON_ITER_HOLDS_INT64 (&it_sc)) sc = (double)bson_iter_int64(&it_sc);
+        else continue;
+
+        if ((size_t)count >= cap) {
+            cap *= 2;
+            subj_score_t *tmp = (subj_score_t *)realloc(*out, sizeof(subj_score_t) * cap);
+            if (!tmp) break;
+            *out = tmp;
+        }
+        strncpy((*out)[count].student_id, sid, 63);
+        (*out)[count].student_id[63] = '\0';
+        (*out)[count].score = sc;
+        count++;
+    }
+    mongoc_cursor_destroy(cur);
+    return count;
+}
+
+int db_get_paired_scores(db_connection_t *db,
+                         const char *subject1, const char *class1,
+                         const char *subject2, const char *class2,
+                         score_pair_t **out_pairs, int *out_count,
+                         double *out_fetch_ms)
+{
+    *out_pairs = NULL;
+    *out_count = 0;
+    if (out_fetch_ms) *out_fetch_ms = 0.0;
+
+    if (!db || !db->scores_collection || !db->students_collection) return 0;
+    if (!subject1 || !class1 || !subject2 || !class2)              return 0;
+
+    double t_start   = omp_get_wtime();
+    int    same_class = (strcmp(class1, class2) == 0);
+
+    char **ids1 = NULL; size_t cap1 = 0; int n1 = 0;
+    char **ids2 = NULL; size_t cap2 = 0; int n2 = 0;
+    subj_score_t *sc1 = NULL; int sc1_n = 0;
+    subj_score_t *sc2 = NULL; int sc2_n = 0;
+
+    DB_LOCK();
+
+    n1 = fetch_class_student_ids(db->students_collection, class1, &ids1, &cap1);
+    if (n1 > 0) {
+        if (same_class) {
+            ids2 = ids1;
+            n2   = n1;
+        } else {
+            n2 = fetch_class_student_ids(db->students_collection, class2, &ids2, &cap2);
+        }
+    }
+
+    if (n1 > 0) sc1_n = fetch_subject_scores(db->scores_collection, subject1, ids1, n1, &sc1);
+    if (n2 > 0) sc2_n = fetch_subject_scores(db->scores_collection, subject2, ids2, n2, &sc2);
+
+    DB_UNLOCK();
+
+    if (out_fetch_ms) *out_fetch_ms = (omp_get_wtime() - t_start) * 1000.0;
+
+    if (sc1_n > 0 && sc2_n > 0) {
+        /* Sort both arrays on student_id for merge-join */
+        qsort(sc1, (size_t)sc1_n, sizeof(subj_score_t), cmp_subj_score);
+        qsort(sc2, (size_t)sc2_n, sizeof(subj_score_t), cmp_subj_score);
+
+        int min_n = sc1_n < sc2_n ? sc1_n : sc2_n;
+        score_pair_t *pairs = (score_pair_t *)malloc(sizeof(score_pair_t) * (size_t)(min_n + 1));
+        if (pairs) {
+            int i = 0, j = 0, k = 0;
+            while (i < sc1_n && j < sc2_n) {
+                int cmp = strcmp(sc1[i].student_id, sc2[j].student_id);
+                if (cmp == 0) {
+                    pairs[k].x = sc1[i].score;
+                    pairs[k].y = sc2[j].score;
+                    k++; i++; j++;
+                } else if (cmp < 0) { i++; }
+                else                 { j++; }
+            }
+            *out_pairs = pairs;
+            *out_count = k;
+        }
+    }
+
+    printf("[corr] '%s'(%s) vs '%s'(%s): %d pairs\n",
+           subject1, class1, subject2, class2, *out_count);
+
+    /* Cleanup temporaries */
+    for (int ii = 0; ii < n1; ii++) free(ids1[ii]);
+    free(ids1);
+    if (!same_class) {
+        for (int ii = 0; ii < n2; ii++) free(ids2[ii]);
+        free(ids2);
+    }
+    free(sc1);
+    free(sc2);
+
+    return (*out_count > 0) ? 1 : 0;
+}
+

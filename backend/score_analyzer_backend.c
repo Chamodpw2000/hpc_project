@@ -27,6 +27,7 @@
 #include "controllers/data_controller.h"
 #include "controllers/score_controller.h"
 #include "controllers/class_controller.h"
+#include "controllers/correlation_controller.h"
 
 /* ---- Server constants -------------------------------------------------- */
 #define PORT      "8090"
@@ -156,6 +157,12 @@ int main(int argc, char *argv[])
     mg_set_request_handler(ctx, CALC_SERIAL_URI,     CalcSerialHandler,   0);
     mg_set_request_handler(ctx, CALC_PARALLEL_URI,   CalcParallelHandler, 0);
     mg_set_request_handler(ctx, CALC_COMPARE_URI,    CalcCompareHandler,  0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/serial",
+                                CorrSerialHandler,   0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/parallel",
+                                CorrParallelHandler, 0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/compare",
+                                CorrCompareHandler,  0);
     mg_set_request_handler(ctx, HEALTH_URI,          HealthHandler,       0);
     /* Classes & Subjects need explicit + wildcard registration so both
        /api/classes  and  /api/classes/{name}  are matched */

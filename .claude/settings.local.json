@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"d:\\\\\\\\University Studies\\\\\\\\Semester 7\\\\\\\\HPC\\\\\\\\hpc_project\" -type f -name \"*.tsx\" -o -name \"*.jsx\" -o -name \"*.ts\" -o -name \"*.js\")",
+      "Bash(find \"d:\\\\\\\\University Studies\\\\\\\\Semester 7\\\\\\\\HPC\\\\\\\\hpc_project/frontend\" -type d)",
+      "Bash(find \"d:\\\\\\\\University Studies\\\\\\\\Semester 7\\\\\\\\HPC\\\\\\\\hpc_project/frontend\" -type f -name \"*.tsx\" -o -type f -name \"*.ts\")"
+    ]
+  }
+}

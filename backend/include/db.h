@@ -73,4 +73,19 @@ char* db_get_subjects_by_class(db_connection_t *db, const char *class_name);
 int   db_rename_subject(db_connection_t *db, const char *old_name, const char *class_name, const char *new_name);
 int   db_delete_subject(db_connection_t *db, const char *name, const char *class_name);
 
+/* Paired score for Pearson correlation computation */
+typedef struct { double x; double y; } score_pair_t;
+
+/*
+ * Fetch paired (x, y) scores for two subjects filtered by their respective classes.
+ * Joins on student_id in-memory using a sorted merge-join.
+ * Caller must free(*out_pairs).
+ * Returns 1 on success (at least 1 pair found), 0 on failure.
+ */
+int db_get_paired_scores(db_connection_t *db,
+                         const char *subject1, const char *class1,
+                         const char *subject2, const char *class2,
+                         score_pair_t **out_pairs, int *out_count,
+                         double *out_fetch_ms);
+
 #endif /* DB_H */
