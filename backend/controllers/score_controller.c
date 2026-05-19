@@ -88,6 +88,34 @@ int SeedHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Dummy data seeded successfully", data);
 }
 
+int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "DELETE") != 0)
+        return SendErrorResponse(conn, 405, "Only DELETE method supported");
+
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    int scores_removed = 0;
+    int students_removed = db_remove_duplicate_students(global_db, &scores_removed);
+
+    if (students_removed < 0)
+        return SendErrorResponse(conn, 500, "Failed to remove duplicate students");
+
+    char data[256];
+    snprintf(data, sizeof(data),
+        "{\n"
+        "    \"students_removed\": %d,\n"
+        "    \"scores_removed\": %d\n"
+        "  }",
+        students_removed, scores_removed);
+
+    return SendJSONResponse(conn, "success", "Duplicate students removed", data);
+}
+
 int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;

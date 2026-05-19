@@ -165,6 +165,7 @@ export default function AnalyticsPage() {
 
   const [loading, setLoading] = useState<string | null>(null);
   const [seedResult, setSeedResult] = useState<SeedData | null>(null);
+  const [removeDupResult, setRemoveDupResult] = useState<{ students_removed: number; scores_removed: number } | null>(null);
   const [compareData, setCompareData] = useState<CompareData | null>(null);
   const [serialOnly, setSerialOnly] = useState<CalcResult | null>(null);
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
@@ -173,6 +174,19 @@ export default function AnalyticsPage() {
   const [compareTotalMs, setCompareTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
+
+  async function removeDuplicates() {
+    setLoading("remove-dups");
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/students/remove-duplicates`, { method: "DELETE" });
+      const json = await res.json();
+      setRemoveDupResult(json.data);
+    } catch (e) {
+      setError(`Remove duplicates failed: ${e}`);
+    }
+    setLoading(null);
+  }
 
   async function seedData() {
     setLoading("seed");
@@ -355,11 +369,23 @@ export default function AnalyticsPage() {
             >
               {loading === "seed" ? "Seeding..." : "Seed Data"}
             </button>
+            <button
+              onClick={removeDuplicates}
+              disabled={loading !== null}
+              className="bg-red-700 hover:bg-red-600 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "remove-dups" ? "Removing..." : "Remove Duplicates"}
+            </button>
           </div>
           {seedResult && (
             <div className="mt-3 text-sm text-emerald-400 font-mono">
               Seeded {seedResult.students_created} students, {seedResult.scores_created} scores
               {seedResult.class_name && <span className="text-zinc-400"> → class <span className="text-white">{seedResult.class_name}</span></span>}
+            </div>
+          )}
+          {removeDupResult && (
+            <div className="mt-3 text-sm text-red-400 font-mono">
+              Removed {removeDupResult.students_removed} duplicate student{removeDupResult.students_removed !== 1 ? "s" : ""} and {removeDupResult.scores_removed} score{removeDupResult.scores_removed !== 1 ? "s" : ""}
             </div>
           )}
         </div>

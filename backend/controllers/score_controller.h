@@ -22,4 +22,7 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata);
 /* GET /api/calculate/compare  – run both and return a side-by-side comparison */
 int CalcCompareHandler(struct mg_connection *conn, void *cbdata);
 
+/* DELETE /api/students/remove-duplicates – remove duplicate student records and their scores */
+int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata);
+
 #endif /* SCORE_CONTROLLER_H */

@@ -41,6 +41,7 @@
 #define DATA_URI          "/api/data"
 #define EXIT_URI          "/exit"
 #define SEED_URI          "/api/seed"
+#define REMOVE_DUPS_URI   "/api/students/remove-duplicates"
 #define CALC_SERIAL_URI   "/api/calculate/serial"
 #define CALC_PARALLEL_URI "/api/calculate/parallel"
 #define CALC_COMPARE_URI  "/api/calculate/compare"
@@ -74,6 +75,7 @@ static int ApiHandler(struct mg_connection *conn, void *cbdata)
     const struct mg_request_info *ri  = mg_get_request_info(conn);
     const char                   *url = ri->local_uri;
 
+    if (strcmp (url, REMOVE_DUPS_URI)       == 0) return RemoveDuplicatesHandler(conn, cbdata);
     if (strncmp(url, "/api/students", 13) == 0) return UsersHandler(conn, cbdata);
     if (strncmp(url, "/api/classes",  12) == 0) return ClassHandler(conn, cbdata);
     if (strncmp(url, "/api/subjects", 13) == 0) return SubjectHandler(conn, cbdata);
@@ -153,6 +155,7 @@ int main(int argc, char *argv[])
     }
 
     /* Register handlers – specific routes first, wildcards last */
+    mg_set_request_handler(ctx, REMOVE_DUPS_URI,      RemoveDuplicatesHandler, 0);
     mg_set_request_handler(ctx, SEED_URI,            SeedHandler,         0);
     mg_set_request_handler(ctx, CALC_SERIAL_URI,     CalcSerialHandler,   0);
     mg_set_request_handler(ctx, CALC_PARALLEL_URI,   CalcParallelHandler, 0);
@@ -187,6 +190,7 @@ int main(int argc, char *argv[])
     printf("  Data API:        %s%s  (GET POST)\n",      HOST_INFO, DATA_URI);
     printf("  Test Endpoints:  %s/api/test/{type}\n",    HOST_INFO);
     printf("  Seed Data:       %s%s (POST)\n",           HOST_INFO, SEED_URI);
+    printf("  Remove Dups:     %s%s (DELETE)\n",        HOST_INFO, REMOVE_DUPS_URI);
     printf("  Serial Calc:     %s%s (GET)\n",            HOST_INFO, CALC_SERIAL_URI);
     printf("  Parallel Calc:   %s%s (GET)\n",            HOST_INFO, CALC_PARALLEL_URI);
     printf("  Compare:         %s%s (GET)\n",            HOST_INFO, CALC_COMPARE_URI);
