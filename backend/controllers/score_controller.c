@@ -10,6 +10,11 @@
 #include <string.h>
 #include <omp.h>
 
+#ifdef ENABLE_MPI
+#include <mpi.h>
+#include "calc_mpi.h"
+#endif
+
 extern db_connection_t *global_db;
 
 int SeedHandler(struct mg_connection *conn, void *cbdata)
@@ -202,14 +207,33 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     omp_set_num_threads(prev);
 
     calc_result_t parallel = run_parallel(scores, count);
+
+#ifdef ENABLE_MPI
+    int cmd = MPI_CMD_CALC_SCORES;
+    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    calc_result_t mpi_res = run_mpi(scores, count);
+    double mpi_time_ms = mpi_res.elapsed_ms;
+    double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
+    int mpi_threads = mpi_res.threads_used;
+#else
+    double mpi_time_ms = 0.0;
+    double speedup_mpi = 0.0;
+    int mpi_threads = 0;
+#endif
+
     free(scores);
 
     double speedup = (parallel.elapsed_ms > 0)
         ? serial.elapsed_ms / parallel.elapsed_ms : 0.0;
 
-    char ser_json[2048], par_json[2048];
+    char ser_json[2048], par_json[2048], mpi_json[2048];
     format_result_json(ser_json, sizeof(ser_json), &serial,   "serial",   db_fetch_ms);
     format_result_json(par_json, sizeof(par_json), &parallel, "parallel", db_fetch_ms);
+#ifdef ENABLE_MPI
+    format_result_json(mpi_json, sizeof(mpi_json), &mpi_res,  "mpi",      db_fetch_ms);
+#else
+    strcpy(mpi_json, "null");
+#endif
 
     char *data = (char *)malloc(8192);
     if (!data) return SendErrorResponse(conn, 500, "Memory allocation failed");
@@ -218,25 +242,67 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         "{\n"
         "    \"serial\": %s,\n"
         "    \"parallel\": %s,\n"
+        "    \"mpi\": %s,\n"
         "    \"comparison\": {\n"
         "      \"serial_time_ms\": %.4f,\n"
         "      \"parallel_time_ms\": %.4f,\n"
+        "      \"mpi_time_ms\": %.4f,\n"
         "      \"db_fetch_ms\": %.4f,\n"
         "      \"speedup\": %.4f,\n"
+        "      \"speedup_mpi\": %.4f,\n"
         "      \"serial_threads\": %d,\n"
         "      \"parallel_threads\": %d,\n"
+        "      \"mpi_threads\": %d,\n"
         "      \"data_size\": %d,\n"
         "      \"improvement_pct\": %.2f\n"
         "    }\n"
         "  }",
-        ser_json, par_json,
-        serial.elapsed_ms, parallel.elapsed_ms, db_fetch_ms, speedup,
-        serial.threads_used, parallel.threads_used,
+        ser_json, par_json, mpi_json,
+        serial.elapsed_ms, parallel.elapsed_ms, mpi_time_ms, db_fetch_ms, 
+        speedup, speedup_mpi,
+        serial.threads_used, parallel.threads_used, mpi_threads,
         count,
         (speedup > 1.0) ? (speedup - 1.0) * 100.0 : 0.0);
 
     int result = SendJSONResponse(conn, "success",
-        "Serial vs Parallel comparison completed", data);
+        "Serial vs Parallel vs MPI comparison completed", data);
     free(data);
     return result;
 }
+
+/* ── MPI distributed score calculation ─────────────────────────────────── */
+#ifdef ENABLE_MPI
+
+int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    int     count  = 0;
+    double  t_db   = omp_get_wtime();
+    double *scores = db_get_scores_array(global_db, &count);
+    double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
+    if (!scores || count == 0) {
+        if (scores) free(scores);
+        return SendErrorResponse(conn, 404,
+            "No scores in database. POST /api/seed first.");
+    }
+
+    /* Signal workers to participate in score calculation */
+    int cmd = MPI_CMD_CALC_SCORES;
+    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    calc_result_t r = run_mpi(scores, count);
+    free(scores);
+
+    char data[2048];
+    format_result_json(data, sizeof(data), &r, "mpi", db_fetch_ms);
+    return SendJSONResponse(conn, "success",
+        "MPI distributed calculation completed", data);
+}
+#endif /* ENABLE_MPI */

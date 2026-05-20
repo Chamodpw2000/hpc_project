@@ -20,4 +20,9 @@ int CorrParallelHandler(struct mg_connection *conn, void *cbdata);
 /* GET /api/calculate/correlation/compare  */
 int CorrCompareHandler (struct mg_connection *conn, void *cbdata);
 
+#ifdef ENABLE_MPI
+/* GET /api/calculate/correlation/mpi – MPI-distributed Pearson correlation */
+int CorrMpiHandler(struct mg_connection *conn, void *cbdata);
+#endif
+
 #endif /* CORRELATION_CONTROLLER_H */
