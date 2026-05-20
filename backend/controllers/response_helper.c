@@ -60,15 +60,18 @@ int SendErrorResponse(struct mg_connection *conn,
 {
     char   response[1024];
     time_t now = time(NULL);
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+    const char *context = (ri && ri->local_uri) ? ri->local_uri : "unknown";
 
     snprintf(response, sizeof(response),
         "{\n"
-        "  \"status\": \"error\",\n"
+        "  \"error\": true,\n"
+        "  \"code\": %d,\n"
         "  \"message\": \"%s\",\n"
-        "  \"timestamp\": %ld,\n"
-        "  \"error_code\": %d\n"
+        "  \"context\": \"%s\",\n"
+        "  \"timestamp\": %ld\n"
         "}",
-        message, (long)now, status_code);
+        status_code, message, context, (long)now);
 
     size_t response_len = strlen(response);
 
@@ -84,6 +87,7 @@ int SendErrorResponse(struct mg_connection *conn,
               (status_code == 404) ? "Not Found"             :
               (status_code == 405) ? "Method Not Allowed"    :
               (status_code == 400) ? "Bad Request"           :
+              (status_code == 503) ? "Service Unavailable"   :
               (status_code == 500) ? "Internal Server Error" : "Error",
               response_len);
 

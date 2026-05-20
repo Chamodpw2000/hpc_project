@@ -1676,6 +1676,50 @@ char* db_get_subjects_by_class(db_connection_t *db, const char *class_name)
     return result;
 }
 
+/* Fetch list of subject names for a class as a dynamically allocated array.
+   Caller must free each string and the array itself.
+   Returns the number of subjects found. */
+int db_get_class_subject_names(db_connection_t *db, const char *class_name, char ***out_names)
+{
+    if (!db || !db->subjects_collection || !class_name) return 0;
+
+    DB_LOCK();
+    bson_t *query = BCON_NEW("class_name", class_name);
+    mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(db->subjects_collection, query, NULL, NULL);
+
+    size_t cap = 16;
+    char **names = (char **)malloc(sizeof(char *) * cap);
+    int count = 0;
+    if (!names) {
+        mongoc_cursor_destroy(cursor);
+        bson_destroy(query);
+        DB_UNLOCK();
+        return 0;
+    }
+
+    const bson_t *doc;
+    while (mongoc_cursor_next(cursor, &doc)) {
+        bson_iter_t ni;
+        if (bson_iter_init_find(&ni, doc, "name") && BSON_ITER_HOLDS_UTF8(&ni)) {
+            const char *n = bson_iter_utf8(&ni, NULL);
+            if (count >= (int)cap) {
+                cap *= 2;
+                char **tmp = (char **)realloc(names, sizeof(char *) * cap);
+                if (!tmp) break;
+                names = tmp;
+            }
+            names[count++] = strdup(n);
+        }
+    }
+
+    mongoc_cursor_destroy(cursor);
+    bson_destroy(query);
+    DB_UNLOCK();
+
+    *out_names = names;
+    return count;
+}
+
 /* Delete a subject by name + class_name */
 int db_delete_subject(db_connection_t *db, const char *name, const char *class_name)
 {

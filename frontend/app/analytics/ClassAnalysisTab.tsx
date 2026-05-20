@@ -44,8 +44,9 @@ interface Comparison {
 interface CompareData {
   serial: CalcResult;
   parallel: CalcResult;
-  mpi?: CalcResult;
+  mpi?: CalcResult | null;
   comparison: Comparison;
+  mpi_error?: string;
 }
 
 export default function ClassAnalysisTab() {
@@ -101,22 +102,49 @@ export default function ClassAnalysisTab() {
     setResults({}); // clear old results
 
     try {
-      const promises = subjects.map(async (subject) => {
-        const url = `${API}/api/calculate/${mode}?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}`;
-        const res = await fetch(url);
+      if (mode === "compare") {
+        // Option A: Single backend request for Compare All
+        const res = await fetch(`/api/calculate/class/compare?class=${encodeURIComponent(selectedClass)}`);
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || `Failed for ${subject}`);
-        return { subject, data: json.data };
-      });
+        
+        if (!res.ok || json.error) {
+          throw new Error(json.message || "Failed to compare all subjects");
+        }
+        
+        const newResults: Record<string, CompareData> = {};
+        json.data.subjects.forEach((item: any) => {
+          newResults[item.subject] = {
+            serial: item.serial,
+            parallel: item.parallel,
+            mpi: item.mpi, // Can be null if MPI is down, handled by UI
+            comparison: item.comparison
+          };
+          // Preserve any per-subject MPI errors if needed by the UI
+          if (item.mpi_error) {
+            (newResults[item.subject] as any).mpi_error = item.mpi_error;
+          }
+        });
+        
+        setResults(newResults);
+      } else {
+        // Individual sequential calls for specific modes
+        const promises = subjects.map(async (subject) => {
+          const url = `${API}/api/calculate/${mode}?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}`;
+          const res = await fetch(url);
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.message || `Failed for ${subject}`);
+          return { subject, data: json.data };
+        });
 
-      const completed = await Promise.all(promises);
-      
-      const newResults: Record<string, CalcResult | CompareData> = {};
-      completed.forEach((item) => {
-        newResults[item.subject] = item.data;
-      });
-      
-      setResults(newResults);
+        const completed = await Promise.all(promises);
+        
+        const newResults: Record<string, CalcResult | CompareData> = {};
+        completed.forEach((item) => {
+          newResults[item.subject] = item.data;
+        });
+        
+        setResults(newResults);
+      }
     } catch (e: any) {
       setError(e.message || "An error occurred during calculation");
     } finally {
@@ -260,21 +288,28 @@ export default function ClassAnalysisTab() {
                           </span>
                         </div>
                       </div>
-                      {(res as CompareData).comparison.mpi_time_ms !== undefined && (res as CompareData).comparison.mpi_time_ms > 0 && (
+                      {(res as CompareData).comparison.mpi_time_ms !== undefined && (res as CompareData).comparison.mpi_time_ms! > 0 ? (
                         <div className="flex justify-between items-center text-zinc-400">
                           <span>MPI (Distributed):</span>
                           <div className="text-right">
                             <span className="font-mono text-green-400">
-                              {((res as CompareData).comparison.mpi_time_ms / 1000).toFixed(4)} s
+                              {((res as CompareData).comparison.mpi_time_ms! / 1000).toFixed(4)} s
                             </span>
-                            {(res as CompareData).comparison.speedup_mpi !== undefined && (res as CompareData).comparison.speedup_mpi > 0 && (
+                            {(res as CompareData).comparison.speedup_mpi !== undefined && (res as CompareData).comparison.speedup_mpi! > 0 && (
                               <span className="ml-1.5 text-green-400 font-bold">
-                                ({(res as CompareData).comparison.speedup_mpi.toFixed(2)}x)
+                                ({(res as CompareData).comparison.speedup_mpi!.toFixed(2)}x)
                               </span>
                             )}
                           </div>
                         </div>
-                      )}
+                      ) : (res as CompareData).mpi_error ? (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>MPI (Distributed):</span>
+                          <span className="text-red-400 font-mono text-[10px] uppercase truncate max-w-[150px] title={(res as CompareData).mpi_error}">
+                            Failed: {(res as CompareData).mpi_error}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   )}
 
