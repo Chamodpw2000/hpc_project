@@ -17,6 +17,20 @@
 
 extern db_connection_t *global_db;
 
+static int buf_append(char **buf, size_t *len, size_t *cap, const char *src)
+{
+    size_t slen = strlen(src);
+    if (*len + slen + 1 > *cap) {
+        *cap = (*len + slen + 1) * 2;
+        char *tmp = (char *)realloc(*buf, *cap);
+        if (!tmp) return 0;
+        *buf = tmp;
+    }
+    strcpy(*buf + *len, src);
+    *len += slen;
+    return 1;
+}
+
 int SeedHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -293,6 +307,161 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     int result = SendJSONResponse(conn, "success",
         "Serial vs Parallel vs MPI comparison completed", data);
     free(data);
+    return result;
+}
+
+int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    char class_filter[256] = "";
+    int ql = ri->query_string ? strlen(ri->query_string) : 0;
+    if (ri->query_string) {
+        mg_get_var(ri->query_string, ql, "class", class_filter, sizeof(class_filter));
+    }
+    if (class_filter[0] == '\0') {
+        return SendErrorResponse(conn, 400, "Missing required query parameter: class");
+    }
+
+    char **subjects = NULL;
+    int subject_count = db_get_class_subject_names(global_db, class_filter, &subjects);
+    if (subject_count == 0) {
+        char empty_resp[1024];
+        snprintf(empty_resp, sizeof(empty_resp),
+            "{\n"
+            "  \"class\": \"%s\",\n"
+            "  \"subjects\": [],\n"
+            "  \"warning\": \"No subjects found\"\n"
+            "}", class_filter);
+        return SendJSONResponse(conn, "success", "No subjects found", empty_resp);
+    }
+
+    size_t out_cap = 16384, out_len = 0;
+    char *out_buf = (char *)malloc(out_cap);
+    if (!out_buf) {
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 500, "Memory allocation failed");
+    }
+    out_buf[0] = '\0';
+    buf_append(&out_buf, &out_len, &out_cap, "[\n");
+
+    int prev_threads = omp_get_max_threads();
+
+    for (int s_idx = 0; s_idx < subject_count; s_idx++) {
+        const char *subject_name = subjects[s_idx];
+        int count = 0;
+        double t_db = omp_get_wtime();
+        double *scores = db_get_scores_array(global_db, class_filter, subject_name, &count);
+        double db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
+
+        if (!scores || count == 0) {
+            if (scores) free(scores);
+            continue;
+        }
+
+        omp_set_num_threads(1);
+        calc_result_t serial = run_serial(scores, count);
+        omp_set_num_threads(prev_threads);
+
+        calc_result_t parallel = run_parallel(scores, count);
+
+#ifdef ENABLE_MPI
+        int cmd = MPI_CMD_CALC_SCORES;
+        MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        calc_result_t mpi_res = run_mpi(scores, count);
+        double mpi_time_ms = mpi_res.elapsed_ms;
+        double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
+        int mpi_threads = mpi_res.threads_used;
+        char mpi_json[2048];
+        if (mpi_res.elapsed_ms < 0.0) {
+            snprintf(mpi_json, sizeof(mpi_json), "null,\n      \"mpi_error\": \"MPI workers are not running\"");
+        } else {
+            char m_json[1024];
+            format_result_json(m_json, sizeof(m_json), &mpi_res, "mpi", db_fetch_ms);
+            snprintf(mpi_json, sizeof(mpi_json), "%s", m_json);
+        }
+#else
+        double mpi_time_ms = 0.0;
+        double speedup_mpi = 0.0;
+        int mpi_threads = 0;
+        char mpi_json[256];
+        snprintf(mpi_json, sizeof(mpi_json), "null,\n      \"mpi_error\": \"MPI not enabled\"");
+#endif
+        free(scores);
+
+        double speedup = (parallel.elapsed_ms > 0) ? serial.elapsed_ms / parallel.elapsed_ms : 0.0;
+
+        char ser_json[2048], par_json[2048];
+        format_result_json(ser_json, sizeof(ser_json), &serial, "serial", db_fetch_ms);
+        format_result_json(par_json, sizeof(par_json), &parallel, "parallel", db_fetch_ms);
+
+        char subj_json[8192];
+        snprintf(subj_json, sizeof(subj_json),
+            "    {\n"
+            "      \"subject\": \"%s\",\n"
+            "      \"serial\": %s,\n"
+            "      \"parallel\": %s,\n"
+            "      \"mpi\": %s,\n"
+            "      \"comparison\": {\n"
+            "        \"serial_time_ms\": %.4f,\n"
+            "        \"parallel_time_ms\": %.4f,\n"
+            "        \"mpi_time_ms\": %.4f,\n"
+            "        \"db_fetch_ms\": %.4f,\n"
+            "        \"speedup\": %.4f,\n"
+            "        \"speedup_mpi\": %.4f,\n"
+            "        \"serial_threads\": %d,\n"
+            "        \"parallel_threads\": %d,\n"
+            "        \"mpi_threads\": %d,\n"
+            "        \"data_size\": %d,\n"
+            "        \"improvement_pct\": %.2f\n"
+            "      }\n"
+            "    }",
+            subject_name,
+            ser_json, par_json, mpi_json,
+            serial.elapsed_ms, parallel.elapsed_ms, mpi_time_ms, db_fetch_ms, 
+            speedup, speedup_mpi,
+            serial.threads_used, parallel.threads_used, mpi_threads,
+            count,
+            (speedup > 1.0) ? (speedup - 1.0) * 100.0 : 0.0);
+
+        if (s_idx > 0 && out_len > 3) {
+            buf_append(&out_buf, &out_len, &out_cap, ",\n");
+        }
+        buf_append(&out_buf, &out_len, &out_cap, subj_json);
+    }
+
+    buf_append(&out_buf, &out_len, &out_cap, "\n  ]");
+
+    size_t full_cap = out_len + 1024;
+    char *full_data = (char *)malloc(full_cap);
+    if (!full_data) {
+        free(out_buf);
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 500, "Memory allocation failed");
+    }
+
+    snprintf(full_data, full_cap,
+        "{\n"
+        "  \"class\": \"%s\",\n"
+        "  \"subjects\": %s\n"
+        "}",
+        class_filter, out_buf);
+
+    int result = SendJSONResponse(conn, "success", "Class comparison completed", full_data);
+
+    free(full_data);
+    free(out_buf);
+    for (int i = 0; i < subject_count; i++) free(subjects[i]);
+    free(subjects);
+
     return result;
 }
 

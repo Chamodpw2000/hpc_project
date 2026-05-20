@@ -79,6 +79,7 @@ int   db_delete_class(db_connection_t *db, const char *name);
 int   db_create_subject(db_connection_t *db, const char *name, const char *class_name);
 char* db_get_all_subjects(db_connection_t *db);
 char* db_get_subjects_by_class(db_connection_t *db, const char *class_name);
+int   db_get_class_subject_names(db_connection_t *db, const char *class_name, char ***out_names);
 int   db_rename_subject(db_connection_t *db, const char *old_name, const char *class_name, const char *new_name);
 int   db_delete_subject(db_connection_t *db, const char *name, const char *class_name);
 
