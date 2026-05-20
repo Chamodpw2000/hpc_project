@@ -63,8 +63,8 @@ int db_remove_duplicate_students(db_connection_t *db, int *out_scores_removed);
 int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student,
                        const char *class_filter);
 
-/* Fetch all scores as a raw double array for computation */
-double* db_get_scores_array(db_connection_t *db, int *out_count);
+/* Fetch scores as a raw double array, optionally filtered by class and subject */
+double* db_get_scores_array(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count);
 
 /* Get total count of scores */
 int db_get_scores_count(db_connection_t *db);

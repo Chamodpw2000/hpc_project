@@ -121,6 +121,17 @@ int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Duplicate students removed", data);
 }
 
+/* ── Helper to extract query parameters ── */
+static void get_filter_params(const struct mg_request_info *ri, char *cls, size_t clen, char *sub, size_t slen) {
+    cls[0] = '\0';
+    sub[0] = '\0';
+    if (ri->query_string) {
+        size_t ql = strlen(ri->query_string);
+        mg_get_var(ri->query_string, ql, "class", cls, clen);
+        mg_get_var(ri->query_string, ql, "subject", sub, slen);
+    }
+}
+
 int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -131,9 +142,14 @@ int CalcSerialHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
+    char cls_filter[256], sub_filter[256];
+    get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
+    const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
+    const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+
     int     count  = 0;
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, &count);
+    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -162,9 +178,14 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
+    char cls_filter[256], sub_filter[256];
+    get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
+    const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
+    const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+
     int     count  = 0;
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, &count);
+    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -191,9 +212,14 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
+    char cls_filter[256], sub_filter[256];
+    get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
+    const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
+    const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+
     int     count  = 0;
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, &count);
+    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -283,9 +309,14 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
     if (!global_db)
         return SendErrorResponse(conn, 500, "Database connection not available");
 
+    char cls_filter[256], sub_filter[256];
+    get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
+    const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
+    const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+
     int     count  = 0;
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, &count);
+    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);

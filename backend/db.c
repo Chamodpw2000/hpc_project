@@ -28,8 +28,9 @@ static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define DB_LOCK()   pthread_mutex_lock(&db_mutex)
 #define DB_UNLOCK() pthread_mutex_unlock(&db_mutex)
 
-/* Forward declaration */
+/* Forward declarations */
 static int buf_append(char **buf, size_t *len, size_t *cap, const char *src);
+static int fetch_class_student_ids(mongoc_collection_t *col, const char *class_name, char ***out_ids, size_t *out_cap);
 
 /* Initialize MongoDB connection */
 db_connection_t* db_init(const char *connection_string, const char *db_name)
@@ -1328,7 +1329,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 }
 
 /* Fetch all score values as a raw double array */
-double* db_get_scores_array(db_connection_t *db, int *out_count)
+double* db_get_scores_array(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count)
 {
     *out_count = 0;
     if (!db || !db->scores_collection) {
@@ -1336,8 +1337,44 @@ double* db_get_scores_array(db_connection_t *db, int *out_count)
     }
 
     DB_LOCK();
+    char **class_student_ids = NULL;
+    size_t class_student_ids_cap = 0;
+    int class_student_ids_n = 0;
+
+    if (class_filter && class_filter[0] != '\0') {
+        class_student_ids_n = fetch_class_student_ids(db->students_collection, class_filter, &class_student_ids, &class_student_ids_cap);
+        if (class_student_ids_n <= 0) {
+            if (class_student_ids) free(class_student_ids);
+            DB_UNLOCK();
+            return NULL;
+        }
+    }
+
     /* First count documents */
     bson_t *filter = bson_new();
+    if (class_filter && class_filter[0] != '\0') {
+        bson_t in_cond, sid_arr;
+        bson_append_document_begin(filter, "student_id", -1, &in_cond);
+        bson_append_array_begin(&in_cond, "$in", -1, &sid_arr);
+        for (int i = 0; i < class_student_ids_n; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", i);
+            BSON_APPEND_UTF8(&sid_arr, key, class_student_ids[i]);
+        }
+        bson_append_array_end(&in_cond, &sid_arr);
+        bson_append_document_end(filter, &in_cond);
+    }
+    if (subject_filter && subject_filter[0] != '\0') {
+        BSON_APPEND_UTF8(filter, "subject", subject_filter);
+    }
+
+    if (class_student_ids) {
+        for (int i = 0; i < class_student_ids_n; i++) {
+            free(class_student_ids[i]);
+        }
+        free(class_student_ids);
+    }
+
     bson_error_t error;
     int64_t count = mongoc_collection_count_documents(
         db->scores_collection, filter, NULL, NULL, NULL, &error);
