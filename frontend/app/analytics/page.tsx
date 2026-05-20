@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import CorrelationTab from "./CorrelationTab";
+import ClassAnalysisTab from "./ClassAnalysisTab";
 
 const API = "http://localhost:8090";
 
@@ -87,7 +88,7 @@ function GradeBar({ grade, count, total, color }: Readonly<{ grade: string; coun
   );
 }
 
-function ResultPanel({ result, color, totalMs }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null }>) {
+export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean }>) {
   const total = result.grade_distribution.A_90_100 + result.grade_distribution.B_80_89 +
     result.grade_distribution.C_70_79 + result.grade_distribution.D_60_69 + result.grade_distribution.F_below_60;
 
@@ -116,7 +117,7 @@ function ResultPanel({ result, color, totalMs }: Readonly<{ result: CalcResult; 
             <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms)}</div>
           </div>
         </div>
-        {totalMs != null && (
+        {totalMs != null && !hideRounding && (
           <div className="mt-2 pt-2 border-t border-zinc-700">
             <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
             <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
@@ -148,7 +149,7 @@ function ResultPanel({ result, color, totalMs }: Readonly<{ result: CalcResult; 
 export default function AnalyticsPage() {
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"simple" | "correlation">("simple");
+  const [activeTab, setActiveTab] = useState<"simple" | "correlation" | "class_analysis">("simple");
   const [seedClasses, setSeedClasses] = useState<string[]>([]);
   const [seedClass, setSeedClass]     = useState("");
 
@@ -346,7 +347,20 @@ export default function AnalyticsPage() {
           >
             Correlation Based Calculations
           </button>
+          <button
+            onClick={() => setActiveTab("class_analysis")}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              activeTab === "class_analysis"
+                ? "bg-zinc-700 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Class Analysis
+          </button>
         </div>
+
+        {/* ── Class Analysis Tab ── */}
+        {activeTab === "class_analysis" && <ClassAnalysisTab />}
 
         {/* ── Simple Calculations Tab ── */}
         {activeTab === "simple" && <>
