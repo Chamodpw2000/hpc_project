@@ -23,6 +23,12 @@
 #include <string.h>
 #include <omp.h>
 
+#ifdef ENABLE_MPI
+#include <mpi.h>
+#include "correlation_mpi.h"
+#include "calc_mpi.h"
+#endif
+
 extern db_connection_t *global_db;
 
 /* ── Parse a single query parameter (URL-decoded by mg_get_var) ── */
@@ -160,14 +166,38 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
     /* Run parallel on same data */
     corr_result_t parallel = run_corr_parallel(pairs, n);
 
+#ifdef ENABLE_MPI
+#include <mpi.h>
+#include "correlation_mpi.h"
+#include "calc_mpi.h"
+    /* Signal workers to participate in correlation calculation */
+    int cmd = MPI_CMD_CALC_CORR;
+    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    corr_result_t mpi_res = run_corr_mpi(pairs, n);
+    double mpi_time_ms = mpi_res.elapsed_ms;
+    double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
+    int mpi_threads = mpi_res.threads_used;
+#else
+    double mpi_time_ms = 0.0;
+    double speedup_mpi = 0.0;
+    int mpi_threads = 0;
+#endif
+
     /* Format individual result JSON (include data_points in both panels) */
     char *ser_json = format_corr_json(&serial,   "serial",   fetch_ms, pairs, n);
     char *par_json = format_corr_json(&parallel, "parallel", 0.0,      pairs, n);
+#ifdef ENABLE_MPI
+    char *mpi_json = format_corr_json(&mpi_res,  "mpi",      0.0,      pairs, n);
+#else
+    char mpi_json_str[] = "null";
+    char *mpi_json = strdup(mpi_json_str);
+#endif
     free(pairs);
 
-    if (!ser_json || !par_json) {
-        free(ser_json);
-        free(par_json);
+    if (!ser_json || !par_json || !mpi_json) {
+        if (ser_json) free(ser_json);
+        if (par_json) free(par_json);
+        if (mpi_json) free(mpi_json);
         return SendErrorResponse(conn, 500, "Memory allocation failed");
     }
 
@@ -175,11 +205,11 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
         ? serial.elapsed_ms / parallel.elapsed_ms : 0.0;
     double improvement_pct = (speedup > 1.0) ? (speedup - 1.0) * 100.0 : 0.0;
 
-    /* Build combined response (+512 for comparison block) */
-    size_t data_sz = strlen(ser_json) + strlen(par_json) + 512;
+    /* Build combined response (+1024 for comparison block to be safe) */
+    size_t data_sz = strlen(ser_json) + strlen(par_json) + strlen(mpi_json) + 1024;
     char  *data    = (char *)malloc(data_sz);
     if (!data) {
-        free(ser_json); free(par_json);
+        free(ser_json); free(par_json); free(mpi_json);
         return SendErrorResponse(conn, 500, "Memory allocation failed");
     }
 
@@ -187,29 +217,74 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
         "{\n"
         "    \"serial\": %s,\n"
         "    \"parallel\": %s,\n"
+        "    \"mpi\": %s,\n"
         "    \"comparison\": {\n"
         "      \"serial_time_ms\": %.4f,\n"
         "      \"parallel_time_ms\": %.4f,\n"
+        "      \"mpi_time_ms\": %.4f,\n"
         "      \"db_fetch_ms\": %.4f,\n"
         "      \"speedup\": %.4f,\n"
+        "      \"speedup_mpi\": %.4f,\n"
         "      \"serial_threads\": %d,\n"
         "      \"parallel_threads\": %d,\n"
+        "      \"mpi_threads\": %d,\n"
         "      \"n_pairs\": %d,\n"
         "      \"improvement_pct\": %.2f\n"
         "    }\n"
         "  }",
-        ser_json, par_json,
-        serial.elapsed_ms, parallel.elapsed_ms, fetch_ms,
-        speedup,
-        serial.threads_used, parallel.threads_used,
+        ser_json, par_json, mpi_json,
+        serial.elapsed_ms, parallel.elapsed_ms, mpi_time_ms, fetch_ms,
+        speedup, speedup_mpi,
+        serial.threads_used, parallel.threads_used, mpi_threads,
         n,
         improvement_pct);
 
     free(ser_json);
     free(par_json);
+    free(mpi_json);
 
     int ret = SendJSONResponse(conn, "success",
-        "Serial vs Parallel correlation comparison completed", data);
+        "Serial vs Parallel vs MPI correlation comparison completed", data);
     free(data);
     return ret;
 }
+
+/* ── MPI distributed correlation ───────────────────────────────────────── */
+#ifdef ENABLE_MPI
+#include "correlation_mpi.h"
+#include "calc_mpi.h"   /* MPI_CMD_* */
+#include <mpi.h>
+
+int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    char sub1[256], cls1[256], sub2[256], cls2[256];
+    double fetch_ms = 0.0;
+    int n = 0;
+
+    score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
+                                        sub1, cls1, sub2, cls2);
+    if (!pairs) return 1;
+
+    /* Signal workers to participate in correlation calculation */
+    int cmd = MPI_CMD_CALC_CORR;
+    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    corr_result_t r = run_corr_mpi(pairs, n);
+
+    char *data = format_corr_json(&r, "mpi", fetch_ms, pairs, n);
+    free(pairs);
+    if (!data) return SendErrorResponse(conn, 500, "Memory allocation failed");
+
+    int ret = SendJSONResponse(conn, "success",
+        "MPI distributed correlation calculation completed", data);
+    free(data);
+    return ret;
+}
+#endif /* ENABLE_MPI */

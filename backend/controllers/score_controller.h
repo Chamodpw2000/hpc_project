@@ -25,4 +25,9 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata);
 /* DELETE /api/students/remove-duplicates – remove duplicate student records and their scores */
 int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata);
 
+#ifdef ENABLE_MPI
+/* GET /api/calculate/mpi – run MPI-distributed statistical analysis */
+int CalcMpiHandler(struct mg_connection *conn, void *cbdata);
+#endif
+
 #endif /* SCORE_CONTROLLER_H */

@@ -18,13 +18,17 @@ interface CorrelationResult {
 interface CorrelationCompare {
   serial: CorrelationResult;
   parallel: CorrelationResult;
+  mpi?: CorrelationResult;
   comparison: {
     serial_time_ms: number;
     parallel_time_ms: number;
+    mpi_time_ms?: number;
     db_fetch_ms: number;
     speedup: number;
+    speedup_mpi?: number;
     serial_threads: number;
     parallel_threads: number;
+    mpi_threads?: number;
     n_pairs: number;
     improvement_pct: number;
   };
@@ -126,14 +130,23 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
 }>) {
   const r = result.correlation_coefficient;
   const { label, color: labelColor } = correlationLabel(r);
-  const modeLabel = result.threads_used === 1 ? "Serial" : "Parallel (OpenMP)";
+  let modeLabel = result.threads_used === 1 ? "Serial" : "Parallel (OpenMP)";
+  if (result.threads_used > 1 && result.data_points && result.data_points.length === 0) {
+    // This is a slight hack: if we don't return data_points it's probably MPI and not OpenMP but let's just default to MPI if there's no data points returned or maybe we can't tell easily.
+    // Let's just use the `mode` parameter if it existed. But since it doesn't, we will pass a custom label. Wait, we don't have `mode`.
+  }
+  // Let's change the modeLabel logic slightly to support MPI:
+  // We can pass an explicit mode title via props if we want, but for now let's just leave it or pass it.
+  // Actually, wait, let's just use the mode if we had it. Let's pass title down to panel.
+  const title = (result as any).mode ? ((result as any).mode === 'mpi' ? 'MPI Distributed' : ((result as any).mode === 'parallel' ? 'Parallel (OpenMP)' : 'Serial')) : modeLabel;
+
 
   return (
     <div className={`border ${borderColor} rounded-xl p-5 bg-zinc-900/50`}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-white uppercase tracking-wider">{modeLabel}</h3>
+        <h3 className="text-lg font-bold text-white uppercase tracking-wider">{title}</h3>
         <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-mono">
-          {result.threads_used} thread{result.threads_used === 1 ? "" : "s"}
+          {result.threads_used} {result.threads_used === 1 ? "thread" : ((result as any).mode === 'mpi' ? "processes" : "threads")}
         </span>
       </div>
 
@@ -198,12 +211,13 @@ export default function CorrelationTab() {
   const [subject2, setSubject2]           = useState("");
 
   // Action state
-  const [loading, setLoading]             = useState<"serial" | "parallel" | "compare" | null>(null);
+  const [loading, setLoading]             = useState<"serial" | "parallel" | "mpi" | "compare" | null>(null);
   const [error, setError]                 = useState<string | null>(null);
 
   // Result state
   const [serialResult, setSerialResult]       = useState<CorrelationResult | null>(null);
   const [parallelResult, setParallelResult]   = useState<CorrelationResult | null>(null);
+  const [mpiResult, setMpiResult]             = useState<CorrelationResult | null>(null);
   const [compareResult, setCompareResult]     = useState<CorrelationCompare | null>(null);
 
   // ── Fetch classes on mount ──
@@ -285,8 +299,23 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
+  async function runMpi() {
+    setLoading("mpi"); setError(null); setCompareResult(null);
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/mpi?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setMpiResult(json.data);
+      setSerialResult(null);
+      setParallelResult(null);
+    } catch (e) {
+      setError(`MPI correlation failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   async function runCompare() {
-    setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null);
+    setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null); setMpiResult(null);
     try {
       const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}`);
       const json = await res.json();
@@ -381,11 +410,18 @@ export default function CorrelationTab() {
             {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
           </button>
           <button
+            onClick={runMpi}
+            disabled={!canRun}
+            className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+          >
+            {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+          </button>
+          <button
             onClick={runCompare}
             disabled={!canRun}
             className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
           >
-            {loading === "compare" ? "Comparing..." : "Compare Both"}
+            {loading === "compare" ? "Comparing..." : "Compare All"}
           </button>
         </div>
       </div>
@@ -398,8 +434,8 @@ export default function CorrelationTab() {
       )}
 
       {/* ── Individual Results ── */}
-      {(serialResult || parallelResult) && !compareResult && (
-        <div className="grid md:grid-cols-2 gap-6 mb-6">
+      {(serialResult || parallelResult || mpiResult) && !compareResult && (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
           {serialResult && (
             <CorrelationPanel
               result={serialResult}
@@ -416,6 +452,15 @@ export default function CorrelationTab() {
               subject1Name={subject1}
               subject2Name={subject2}
               chartColor="#a855f7"
+            />
+          )}
+          {mpiResult && (
+            <CorrelationPanel
+              result={mpiResult}
+              borderColor="border-green-700"
+              subject1Name={subject1}
+              subject2Name={subject2}
+              chartColor="#22c55e"
             />
           )}
         </div>
@@ -438,21 +483,37 @@ export default function CorrelationTab() {
                 <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400">Speedup</div>
-                <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                  {speedup.toFixed(2)}x
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {compareResult.comparison.improvement_pct.toFixed(1)}% faster
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-400">Parallel Time</div>
+                <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
                 <div className="text-2xl font-bold text-purple-400 font-mono">
                   {compareResult.comparison.parallel_time_ms.toFixed(4)} ms
                 </div>
                 <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
               </div>
+              {compareResult.comparison.mpi_time_ms !== undefined && compareResult.comparison.mpi_time_ms > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">MPI Distributed</div>
+                <div className="text-2xl font-bold text-green-400 font-mono">
+                  {compareResult.comparison.mpi_time_ms.toFixed(4)} ms
+                </div>
+                <div className="text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
+              </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div>
+                <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
+                <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                  {speedup.toFixed(2)}x
+                </div>
+              </div>
+              {compareResult.comparison.speedup_mpi !== undefined && compareResult.comparison.speedup_mpi > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">Speedup (MPI)</div>
+                <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
+                  {compareResult.comparison.speedup_mpi.toFixed(2)}x
+                </div>
+              </div>
+              )}
             </div>
             <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
               <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
@@ -460,7 +521,7 @@ export default function CorrelationTab() {
           </div>
 
           {/* Side-by-side panels */}
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className={`grid md:grid-cols-2 ${compareResult.mpi ? 'lg:grid-cols-3' : ''} gap-6`}>
             <CorrelationPanel
               result={compareResult.serial}
               borderColor="border-blue-700"
@@ -475,6 +536,15 @@ export default function CorrelationTab() {
               subject2Name={subject2}
               chartColor="#a855f7"
             />
+            {compareResult.mpi && (
+              <CorrelationPanel
+                result={compareResult.mpi}
+                borderColor="border-green-700"
+                subject1Name={subject1}
+                subject2Name={subject2}
+                chartColor="#22c55e"
+              />
+            )}
           </div>
         </>
       )}

@@ -29,6 +29,13 @@
 #include "controllers/class_controller.h"
 #include "controllers/correlation_controller.h"
 
+#ifdef ENABLE_MPI
+#include <mpi.h>
+#include "controllers/calc_mpi.h"
+#include "controllers/correlation_mpi.h"
+#include "controllers/mpi_worker.h"
+#endif
+
 /* ---- Server constants -------------------------------------------------- */
 #define PORT      "8090"
 #define HOST_INFO "http://localhost:8090"
@@ -45,6 +52,7 @@
 #define CALC_SERIAL_URI   "/api/calculate/serial"
 #define CALC_PARALLEL_URI "/api/calculate/parallel"
 #define CALC_COMPARE_URI  "/api/calculate/compare"
+#define CALC_MPI_URI      "/api/calculate/mpi"
 #define CLASSES_URI       "/api/classes"
 #define SUBJECTS_URI      "/api/subjects"
 
@@ -100,8 +108,23 @@ static int log_message(const struct mg_connection *conn, const char *message)
 /* ======================================================================== */
 int main(int argc, char *argv[])
 {
+#ifdef ENABLE_MPI
+    int mpi_rank = 0, mpi_world_size = 1;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
+
+    /* Worker ranks enter the worker loop and never run CivetWeb */
+    if (mpi_rank != 0) {
+        mpi_worker_loop(mpi_rank, mpi_world_size);
+        MPI_Finalize();
+        return EXIT_SUCCESS;
+    }
+    printf("[MPI Master] Running with %d processes\n", mpi_world_size);
+#else
     (void)argc;
     (void)argv;
+#endif
 
     const char *options[] = {
         "listening_ports",    PORT,
@@ -160,6 +183,11 @@ int main(int argc, char *argv[])
     mg_set_request_handler(ctx, CALC_SERIAL_URI,     CalcSerialHandler,   0);
     mg_set_request_handler(ctx, CALC_PARALLEL_URI,   CalcParallelHandler, 0);
     mg_set_request_handler(ctx, CALC_COMPARE_URI,    CalcCompareHandler,  0);
+#ifdef ENABLE_MPI
+    mg_set_request_handler(ctx, CALC_MPI_URI,         CalcMpiHandler,      0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/mpi",
+                                                     CorrMpiHandler,      0);
+#endif
     mg_set_request_handler(ctx, "/api/calculate/correlation/serial",
                                 CorrSerialHandler,   0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/parallel",
@@ -194,8 +222,15 @@ int main(int argc, char *argv[])
     printf("  Serial Calc:     %s%s (GET)\n",            HOST_INFO, CALC_SERIAL_URI);
     printf("  Parallel Calc:   %s%s (GET)\n",            HOST_INFO, CALC_PARALLEL_URI);
     printf("  Compare:         %s%s (GET)\n",            HOST_INFO, CALC_COMPARE_URI);
+#ifdef ENABLE_MPI
+    printf("  MPI Calc:        %s%s (GET)\n",            HOST_INFO, CALC_MPI_URI);
+    printf("  MPI Corr:        %s/api/calculate/correlation/mpi (GET)\n", HOST_INFO);
+#endif
     printf("  Shutdown:        %s%s\n",                  HOST_INFO, EXIT_URI);
     printf("\n  OpenMP threads available: %d\n",         omp_get_max_threads());
+#ifdef ENABLE_MPI
+    printf("  MPI processes:   %d\n",                   mpi_world_size);
+#endif
     printf("\nPress Ctrl+C or visit %s%s to stop\n",     HOST_INFO, EXIT_URI);
     printf("==========================================\n\n");
 
@@ -210,6 +245,13 @@ int main(int argc, char *argv[])
 
     /* Cleanup */
     mg_stop(ctx);
+
+#ifdef ENABLE_MPI
+    /* Tell worker ranks to shut down */
+    int shutdown_cmd = MPI_CMD_SHUTDOWN;
+    MPI_Bcast(&shutdown_cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+
     if (global_db) { db_cleanup(global_db); global_db = NULL; }
     if (config)    { config_free(config); }
     mg_exit_library();
@@ -217,6 +259,10 @@ int main(int argc, char *argv[])
     printf("\nServer stopped after handling %u requests.\n", requestCounter);
     printf("Logs saved to score_analyzer_*.log\n");
     printf("Goodbye!\n");
+
+#ifdef ENABLE_MPI
+    MPI_Finalize();
+#endif
 
     return EXIT_SUCCESS;
 }

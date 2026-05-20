@@ -39,8 +39,11 @@ interface Comparison {
   parallel_time_ms: number;
   db_fetch_ms: number;
   speedup: number;
+  speedup_mpi?: number;
   serial_threads: number;
   parallel_threads: number;
+  mpi_threads?: number;
+  mpi_time_ms?: number;
   data_size: number;
   improvement_pct: number;
 }
@@ -48,6 +51,7 @@ interface Comparison {
 interface CompareData {
   serial: CalcResult;
   parallel: CalcResult;
+  mpi?: CalcResult;
   comparison: Comparison;
 }
 
@@ -172,6 +176,8 @@ export default function AnalyticsPage() {
   const [serialTotalMs, setSerialTotalMs] = useState<number | null>(null);
   const [parallelTotalMs, setParallelTotalMs] = useState<number | null>(null);
   const [compareTotalMs, setCompareTotalMs] = useState<number | null>(null);
+  const [mpiOnly, setMpiOnly] = useState<CalcResult | null>(null);
+  const [mpiTotalMs, setMpiTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
 
@@ -251,6 +257,21 @@ export default function AnalyticsPage() {
       setCompareTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Comparison failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
+  async function runMpi() {
+    setLoading("mpi");
+    setError(null);
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${API}/api/calculate/mpi`);
+      const json = await res.json();
+      setMpiOnly(json.data);
+      setMpiTotalMs(performance.now() - t0);
+    } catch (e) {
+      setError(`MPI calc failed: ${e}`);
     }
     setLoading(null);
   }
@@ -409,11 +430,18 @@ export default function AnalyticsPage() {
               {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
             </button>
             <button
+              onClick={runMpi}
+              disabled={loading !== null}
+              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+            </button>
+            <button
               onClick={runCompare}
               disabled={loading !== null}
               className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
             >
-              {loading === "compare" ? "Comparing..." : "Compare Both"}
+              {loading === "compare" ? "Comparing..." : "Compare All"}
             </button>
           </div>
         </div>
@@ -425,10 +453,11 @@ export default function AnalyticsPage() {
         )}
 
         {/* Individual Results */}
-        {(serialOnly || parallelOnly) && !compareData && (
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+        {(serialOnly || parallelOnly || mpiOnly) && !compareData && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
             {serialOnly && <ResultPanel result={serialOnly} color="border-blue-700" totalMs={serialTotalMs} />}
             {parallelOnly && <ResultPanel result={parallelOnly} color="border-purple-700" totalMs={parallelTotalMs} />}
+            {mpiOnly && <ResultPanel result={mpiOnly} color="border-green-700" totalMs={mpiTotalMs} />}
           </div>
         )}
 
@@ -447,21 +476,37 @@ export default function AnalyticsPage() {
                   <div className="text-xs text-zinc-500">{compareData.comparison.serial_threads} thread</div>
                 </div>
                 <div>
-                  <div className="text-xs text-zinc-400">Speedup</div>
-                  <div className={`text-4xl font-black font-mono ${compareData.comparison.speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                    {compareData.comparison.speedup.toFixed(2)}x
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {compareData.comparison.improvement_pct.toFixed(1)}% faster
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-400">Parallel Time</div>
+                  <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
                   <div className="text-2xl font-bold text-purple-400 font-mono">
                     {formatTime(compareData.comparison.parallel_time_ms)}
                   </div>
                   <div className="text-xs text-zinc-500">{compareData.comparison.parallel_threads} threads</div>
                 </div>
+                {compareData.comparison.mpi_time_ms !== undefined && compareData.comparison.mpi_time_ms > 0 && (
+                <div>
+                  <div className="text-xs text-zinc-400">MPI Distributed</div>
+                  <div className="text-2xl font-bold text-green-400 font-mono">
+                    {formatTime(compareData.comparison.mpi_time_ms)}
+                  </div>
+                  <div className="text-xs text-zinc-500">{compareData.comparison.mpi_threads} processes</div>
+                </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
+                  <div className={`text-4xl font-black font-mono ${compareData.comparison.speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                    {compareData.comparison.speedup.toFixed(2)}x
+                  </div>
+                </div>
+                {compareData.comparison.speedup_mpi !== undefined && compareData.comparison.speedup_mpi > 0 && (
+                <div>
+                  <div className="text-xs text-zinc-400">Speedup (MPI)</div>
+                  <div className={`text-4xl font-black font-mono ${compareData.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
+                    {compareData.comparison.speedup_mpi.toFixed(2)}x
+                  </div>
+                </div>
+                )}
               </div>
               <div className="mt-4 pt-3 border-t border-amber-800/50 grid grid-cols-3 gap-2 text-center">
                 <div>
@@ -480,9 +525,10 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Side-by-side panels */}
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className={`grid md:grid-cols-2 ${compareData.mpi ? 'lg:grid-cols-3' : ''} gap-6`}>
               <ResultPanel result={compareData.serial} color="border-blue-700" />
               <ResultPanel result={compareData.parallel} color="border-purple-700" />
+              {compareData.mpi && <ResultPanel result={compareData.mpi} color="border-green-700" />}
             </div>
           </>
         )}
