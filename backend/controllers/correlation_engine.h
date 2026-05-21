@@ -25,6 +25,9 @@ corr_result_t run_corr_serial  (const score_pair_t *pairs, int n);
 /* OpenMP-parallelised Pearson r (five independent reductions) */
 corr_result_t run_corr_parallel(const score_pair_t *pairs, int n);
 
+/* POSIX-threads (pthreads) parallelised Pearson r */
+corr_result_t run_corr_pthread(const score_pair_t *pairs, int n);
+
 /*
  * Build a JSON fragment for a correlation result.
  * Returns a malloc'd string; caller must free().
@@ -34,6 +37,7 @@ corr_result_t run_corr_parallel(const score_pair_t *pairs, int n);
  */
 char* format_corr_json(const corr_result_t *r, const char *label,
                        double db_fetch_ms,
-                       const score_pair_t *points, int npts);
+                       const score_pair_t *points, int npts,
+                       int total_students, int excluded);
 
 #endif /* CORRELATION_ENGINE_H */

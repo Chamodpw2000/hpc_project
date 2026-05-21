@@ -1890,10 +1890,13 @@ int db_get_paired_scores(db_connection_t *db,
                          const char *subject1, const char *class1,
                          const char *subject2, const char *class2,
                          score_pair_t **out_pairs, int *out_count,
+                         int *out_total_students, int *out_excluded,
                          double *out_fetch_ms)
 {
     *out_pairs = NULL;
     *out_count = 0;
+    if (out_total_students) *out_total_students = 0;
+    if (out_excluded)       *out_excluded = 0;
     if (out_fetch_ms) *out_fetch_ms = 0.0;
 
     if (!db || !db->scores_collection || !db->students_collection) return 0;
@@ -1948,6 +1951,25 @@ int db_get_paired_scores(db_connection_t *db,
             *out_count = k;
         }
     }
+
+    int total_students = n1;
+    if (!same_class && n1 > 0 && n2 > 0) {
+        for (int i = 0; i < n2; i++) {
+            int found = 0;
+            for (int j = 0; j < n1; j++) {
+                if (strcmp(ids2[i], ids1[j]) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) total_students++;
+        }
+    } else if (!same_class) {
+        total_students = n1 + n2;
+    }
+
+    if (out_total_students) *out_total_students = total_students;
+    if (out_excluded)       *out_excluded = total_students - *out_count;
 
     printf("[corr] '%s'(%s) vs '%s'(%s): %d pairs\n",
            subject1, class1, subject2, class2, *out_count);

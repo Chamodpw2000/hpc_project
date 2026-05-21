@@ -36,9 +36,19 @@ calc_result_t run_serial(const double *scores, int n);
 /* Run OpenMP-parallelised calculation */
 calc_result_t run_parallel(const double *scores, int n);
 
+/* Run POSIX-threads (pthreads) parallelised calculation */
+calc_result_t run_pthread(const double *scores, int n);
+
+/*
+ * Merge two sorted arrays into a newly allocated buffer.
+ * Returns NULL on allocation failure.  Caller must free() the result.
+ */
+double* merge_sorted_arrays(const double *a, int na,
+                            const double *b, int nb);
+
 /*
  * Serialise a calc_result_t into a JSON fragment stored in buf[0..sz-1].
- * label       – e.g. "serial" or "parallel"
+ * label       – e.g. "serial", "parallel", or "pthread"
  * db_fetch_ms – time spent fetching scores from MongoDB (ms)
  */
 void format_result_json(char *buf, size_t sz,

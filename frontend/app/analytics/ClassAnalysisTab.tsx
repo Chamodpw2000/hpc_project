@@ -30,12 +30,15 @@ interface SubjectItem {
 interface Comparison {
   serial_time_ms: number;
   parallel_time_ms: number;
+  pthread_time_ms?: number;
   mpi_time_ms?: number;
   db_fetch_ms: number;
   speedup: number;
+  speedup_pthread?: number;
   speedup_mpi?: number;
   serial_threads: number;
   parallel_threads: number;
+  pthread_threads?: number;
   mpi_threads?: number;
   data_size: number;
   improvement_pct: number;
@@ -44,6 +47,7 @@ interface Comparison {
 interface CompareData {
   serial: CalcResult;
   parallel: CalcResult;
+  pthread?: CalcResult;
   mpi?: CalcResult | null;
   comparison: Comparison;
   mpi_error?: string;
@@ -54,11 +58,14 @@ export default function ClassAnalysisTab() {
   const [selectedClass, setSelectedClass] = useState("");
   const [subjects, setSubjects] = useState<string[]>([]);
   
-  const [loading, setLoading] = useState<"serial" | "parallel" | "mpi" | "compare" | null>(null);
+  const [loading, setLoading] = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | null>(null);
   const [error, setError] = useState<string | null>(null);
   
   // Store results mapped by subject name
   const [results, setResults] = useState<Record<string, CalcResult | CompareData>>({});
+
+  // Store selected mode for each subject card (when compared)
+  const [selectedModes, setSelectedModes] = useState<Record<string, "serial" | "parallel" | "pthread" | "mpi">>({});
 
   // 1. Fetch classes on mount
   useEffect(() => {
@@ -81,6 +88,7 @@ export default function ClassAnalysisTab() {
     if (!selectedClass) return;
     setSubjects([]);
     setResults({});
+    setSelectedModes({});
     fetch(`${API}/api/subjects?class=${encodeURIComponent(selectedClass)}`)
       .then((res) => res.json())
       .then((json) => {
@@ -94,12 +102,13 @@ export default function ClassAnalysisTab() {
       .catch((err) => console.error("Failed to load subjects:", err));
   }, [selectedClass]);
 
-  const runCalculation = async (mode: "serial" | "parallel" | "mpi" | "compare") => {
+  const runCalculation = async (mode: "serial" | "parallel" | "pthread" | "mpi" | "compare") => {
     if (!selectedClass || subjects.length === 0) return;
     
     setLoading(mode);
     setError(null);
     setResults({}); // clear old results
+    setSelectedModes({});
 
     try {
       if (mode === "compare") {
@@ -116,6 +125,7 @@ export default function ClassAnalysisTab() {
           newResults[item.subject] = {
             serial: item.serial,
             parallel: item.parallel,
+            pthread: item.pthread,
             mpi: item.mpi, // Can be null if MPI is down, handled by UI
             comparison: item.comparison
           };
@@ -210,6 +220,13 @@ export default function ClassAnalysisTab() {
             {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
           </button>
           <button
+            onClick={() => runCalculation("pthread")}
+            disabled={!canRun}
+            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+          >
+            {loading === "pthread" ? "Running..." : "Run Pthreads"}
+          </button>
+          <button
             onClick={() => runCalculation("mpi")}
             disabled={!canRun}
             className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
@@ -248,15 +265,28 @@ export default function ClassAnalysisTab() {
               if (!res) return null;
               
               const isCompare = "comparison" in res;
-              const calcRes = isCompare ? (res as CompareData).serial : (res as CalcResult);
+              const activeMode = isCompare ? (selectedModes[subject] ?? "serial") : (res as CalcResult).mode;
+              
+              let calcRes: CalcResult;
+              if (isCompare) {
+                const compareData = res as CompareData;
+                if (activeMode === "parallel") {
+                  calcRes = compareData.parallel;
+                } else if (activeMode === "pthread" && compareData.pthread) {
+                  calcRes = compareData.pthread;
+                } else if (activeMode === "mpi" && compareData.mpi) {
+                  calcRes = compareData.mpi;
+                } else {
+                  calcRes = compareData.serial;
+                }
+              } else {
+                calcRes = res as CalcResult;
+              }
               
               let borderColor = "border-blue-700";
-              if (!isCompare) {
-                if (calcRes.mode === "parallel") borderColor = "border-purple-700";
-                if (calcRes.mode === "mpi") borderColor = "border-green-700";
-              } else {
-                borderColor = "border-amber-700";
-              }
+              if (activeMode === "parallel") borderColor = "border-purple-700";
+              else if (activeMode === "pthread") borderColor = "border-cyan-700";
+              else if (activeMode === "mpi") borderColor = "border-green-700";
 
               return (
                 <div key={subject} className="flex flex-col bg-zinc-900 rounded-xl overflow-hidden shadow-lg border border-zinc-800">
@@ -288,6 +318,21 @@ export default function ClassAnalysisTab() {
                           </span>
                         </div>
                       </div>
+                      {(res as CompareData).comparison.pthread_time_ms !== undefined && (res as CompareData).comparison.pthread_time_ms! > 0 && (
+                        <div className="flex justify-between items-center text-zinc-400">
+                          <span>POSIX Threads (pthreads):</span>
+                          <div className="text-right">
+                            <span className="font-mono text-cyan-400">
+                              {((res as CompareData).comparison.pthread_time_ms! / 1000).toFixed(4)} s
+                            </span>
+                            {(res as CompareData).comparison.speedup_pthread !== undefined && (res as CompareData).comparison.speedup_pthread! > 0 && (
+                              <span className="ml-1.5 text-cyan-400 font-bold">
+                                ({(res as CompareData).comparison.speedup_pthread!.toFixed(2)}x)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {(res as CompareData).comparison.mpi_time_ms !== undefined && (res as CompareData).comparison.mpi_time_ms! > 0 ? (
                         <div className="flex justify-between items-center text-zinc-400">
                           <span>MPI (Distributed):</span>
@@ -310,6 +355,55 @@ export default function ClassAnalysisTab() {
                           </span>
                         </div>
                       ) : null}
+                    </div>
+                  )}
+
+                  {isCompare && (
+                    <div className="px-4 py-3 bg-zinc-950 border-b border-zinc-800 flex gap-2 justify-center">
+                      <button
+                        onClick={() => setSelectedModes(prev => ({ ...prev, [subject]: "serial" }))}
+                        className={`flex-1 py-1 px-1.5 rounded text-[11px] font-bold transition-all ${
+                          activeMode === "serial"
+                            ? "bg-blue-600 text-white shadow-sm"
+                            : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                        }`}
+                      >
+                        Serial
+                      </button>
+                      <button
+                        onClick={() => setSelectedModes(prev => ({ ...prev, [subject]: "parallel" }))}
+                        className={`flex-1 py-1 px-1.5 rounded text-[11px] font-bold transition-all ${
+                          activeMode === "parallel"
+                            ? "bg-purple-600 text-white shadow-sm"
+                            : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                        }`}
+                      >
+                        OpenMP
+                      </button>
+                      {(res as CompareData).pthread && (
+                        <button
+                          onClick={() => setSelectedModes(prev => ({ ...prev, [subject]: "pthread" }))}
+                          className={`flex-1 py-1 px-1.5 rounded text-[11px] font-bold transition-all ${
+                            activeMode === "pthread"
+                              ? "bg-cyan-600 text-white shadow-sm"
+                              : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                          }`}
+                        >
+                          Pthreads
+                        </button>
+                      )}
+                      {(res as CompareData).mpi && (
+                        <button
+                          onClick={() => setSelectedModes(prev => ({ ...prev, [subject]: "mpi" }))}
+                          className={`flex-1 py-1 px-1.5 rounded text-[11px] font-bold transition-all ${
+                            activeMode === "mpi"
+                              ? "bg-green-600 text-white shadow-sm"
+                              : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                          }`}
+                        >
+                          MPI
+                        </button>
+                      )}
                     </div>
                   )}
 
