@@ -96,6 +96,7 @@ int db_get_paired_scores(db_connection_t *db,
                          const char *subject1, const char *class1,
                          const char *subject2, const char *class2,
                          score_pair_t **out_pairs, int *out_count,
+                         int *out_total_students, int *out_excluded,
                          double *out_fetch_ms);
 
 #endif /* DB_H */

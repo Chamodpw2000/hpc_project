@@ -19,6 +19,7 @@
 #include "include/civetweb.h"
 #include "include/config.h"
 #include "include/db.h"
+#include "include/calc_lock.h"
 
 /* Controllers */
 #include "controllers/response_helper.h"
@@ -60,6 +61,8 @@
 /* ---- Shared globals ---------------------------------------------------- */
 int              exitNow   = 0;
 db_connection_t *global_db = NULL;
+pthread_mutex_t  calc_lock = PTHREAD_MUTEX_INITIALIZER;
+int              g_num_threads = 4;   /* pthread worker count, set in main() */
 /* requestCounter is defined in controllers/response_helper.c */
 
 /* ---- Shutdown handler -------------------------------------------------- */
@@ -127,6 +130,10 @@ int main(int argc, char *argv[])
     (void)argv;
 #endif
 
+    /* Capture thread count once at startup for pthreads engine */
+    g_num_threads = omp_get_max_threads();
+    if (g_num_threads < 1) g_num_threads = 4;
+
     const char *options[] = {
         "listening_ports",    PORT,
         "request_timeout_ms", "10000",
@@ -185,6 +192,8 @@ int main(int argc, char *argv[])
     mg_set_request_handler(ctx, CALC_PARALLEL_URI,   CalcParallelHandler, 0);
     mg_set_request_handler(ctx, CALC_COMPARE_URI,    CalcCompareHandler,  0);
     mg_set_request_handler(ctx, CALC_CLASS_COMPARE_URI, CalcClassCompareHandler, 0);
+    mg_set_request_handler(ctx, "/api/calculate/pthread",
+                                CalcPthreadHandler,  0);
 #ifdef ENABLE_MPI
     mg_set_request_handler(ctx, CALC_MPI_URI,         CalcMpiHandler,      0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/mpi",
@@ -194,6 +203,8 @@ int main(int argc, char *argv[])
                                 CorrSerialHandler,   0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/parallel",
                                 CorrParallelHandler, 0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/pthread",
+                                CorrPthreadHandler,  0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/compare",
                                 CorrCompareHandler,  0);
     mg_set_request_handler(ctx, HEALTH_URI,          HealthHandler,       0);
@@ -224,12 +235,15 @@ int main(int argc, char *argv[])
     printf("  Serial Calc:     %s%s (GET)\n",            HOST_INFO, CALC_SERIAL_URI);
     printf("  Parallel Calc:   %s%s (GET)\n",            HOST_INFO, CALC_PARALLEL_URI);
     printf("  Compare:         %s%s (GET)\n",            HOST_INFO, CALC_COMPARE_URI);
+    printf("  Pthread Calc:    %s/api/calculate/pthread (GET)\n",    HOST_INFO);
+    printf("  Pthread Corr:    %s/api/calculate/correlation/pthread (GET)\n", HOST_INFO);
 #ifdef ENABLE_MPI
     printf("  MPI Calc:        %s%s (GET)\n",            HOST_INFO, CALC_MPI_URI);
     printf("  MPI Corr:        %s/api/calculate/correlation/mpi (GET)\n", HOST_INFO);
 #endif
     printf("  Shutdown:        %s%s\n",                  HOST_INFO, EXIT_URI);
     printf("\n  OpenMP threads available: %d\n",         omp_get_max_threads());
+    printf("  Pthread workers:         %d\n",            g_num_threads);
 #ifdef ENABLE_MPI
     printf("  MPI processes:   %d\n",                   mpi_world_size);
 #endif

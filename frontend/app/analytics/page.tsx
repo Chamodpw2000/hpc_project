@@ -38,11 +38,14 @@ interface CalcResult {
 interface Comparison {
   serial_time_ms: number;
   parallel_time_ms: number;
+  pthread_time_ms?: number;
   db_fetch_ms: number;
   speedup: number;
+  speedup_pthread?: number;
   speedup_mpi?: number;
   serial_threads: number;
   parallel_threads: number;
+  pthread_threads?: number;
   mpi_threads?: number;
   mpi_time_ms?: number;
   data_size: number;
@@ -52,6 +55,7 @@ interface Comparison {
 interface CompareData {
   serial: CalcResult;
   parallel: CalcResult;
+  pthread?: CalcResult;
   mpi?: CalcResult;
   comparison: Comparison;
 }
@@ -174,8 +178,10 @@ export default function AnalyticsPage() {
   const [compareData, setCompareData] = useState<CompareData | null>(null);
   const [serialOnly, setSerialOnly] = useState<CalcResult | null>(null);
   const [parallelOnly, setParallelOnly] = useState<CalcResult | null>(null);
+  const [pthreadOnly, setPthreadOnly] = useState<CalcResult | null>(null);
   const [serialTotalMs, setSerialTotalMs] = useState<number | null>(null);
   const [parallelTotalMs, setParallelTotalMs] = useState<number | null>(null);
+  const [pthreadTotalMs, setPthreadTotalMs] = useState<number | null>(null);
   const [compareTotalMs, setCompareTotalMs] = useState<number | null>(null);
   const [mpiOnly, setMpiOnly] = useState<CalcResult | null>(null);
   const [mpiTotalMs, setMpiTotalMs] = useState<number | null>(null);
@@ -211,6 +217,7 @@ export default function AnalyticsPage() {
       setCompareData(null);
       setSerialOnly(null);
       setParallelOnly(null);
+      setPthreadOnly(null);
     } catch (e) {
       setError(`Seed failed: ${e}`);
     }
@@ -243,6 +250,21 @@ export default function AnalyticsPage() {
       setParallelTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Parallel calc failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
+  async function runPthread() {
+    setLoading("pthread");
+    setError(null);
+    const t0 = performance.now();
+    try {
+      const res = await fetch(`${API}/api/calculate/pthread`);
+      const json = await res.json();
+      setPthreadOnly(json.data);
+      setPthreadTotalMs(performance.now() - t0);
+    } catch (e) {
+      setError(`Pthread calc failed: ${e}`);
     }
     setLoading(null);
   }
@@ -444,6 +466,13 @@ export default function AnalyticsPage() {
               {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
             </button>
             <button
+              onClick={runPthread}
+              disabled={loading !== null}
+              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "pthread" ? "Running..." : "Run Pthreads"}
+            </button>
+            <button
               onClick={runMpi}
               disabled={loading !== null}
               className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
@@ -467,10 +496,11 @@ export default function AnalyticsPage() {
         )}
 
         {/* Individual Results */}
-        {(serialOnly || parallelOnly || mpiOnly) && !compareData && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+        {(serialOnly || parallelOnly || pthreadOnly || mpiOnly) && !compareData && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-6">
             {serialOnly && <ResultPanel result={serialOnly} color="border-blue-700" totalMs={serialTotalMs} />}
             {parallelOnly && <ResultPanel result={parallelOnly} color="border-purple-700" totalMs={parallelTotalMs} />}
+            {pthreadOnly && <ResultPanel result={pthreadOnly} color="border-cyan-700" totalMs={pthreadTotalMs} />}
             {mpiOnly && <ResultPanel result={mpiOnly} color="border-green-700" totalMs={mpiTotalMs} />}
           </div>
         )}
@@ -481,7 +511,7 @@ export default function AnalyticsPage() {
             {/* Speedup Banner */}
             <div className="bg-gradient-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
               <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">Performance Comparison</div>
-              <div className="grid grid-cols-3 gap-4 mt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                 <div>
                   <div className="text-xs text-zinc-400">Serial Time</div>
                   <div className="text-2xl font-bold text-blue-400 font-mono">
@@ -496,6 +526,15 @@ export default function AnalyticsPage() {
                   </div>
                   <div className="text-xs text-zinc-500">{compareData.comparison.parallel_threads} threads</div>
                 </div>
+                {compareData.comparison.pthread_time_ms !== undefined && compareData.comparison.pthread_time_ms > 0 && (
+                <div>
+                  <div className="text-xs text-zinc-400">POSIX Threads</div>
+                  <div className="text-2xl font-bold text-cyan-400 font-mono">
+                    {formatTime(compareData.comparison.pthread_time_ms)}
+                  </div>
+                  <div className="text-xs text-zinc-500">{compareData.comparison.pthread_threads} threads</div>
+                </div>
+                )}
                 {compareData.comparison.mpi_time_ms !== undefined && compareData.comparison.mpi_time_ms > 0 && (
                 <div>
                   <div className="text-xs text-zinc-400">MPI Distributed</div>
@@ -506,13 +545,21 @@ export default function AnalyticsPage() {
                 </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
                 <div>
                   <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
                   <div className={`text-4xl font-black font-mono ${compareData.comparison.speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
                     {compareData.comparison.speedup.toFixed(2)}x
                   </div>
                 </div>
+                {compareData.comparison.speedup_pthread !== undefined && compareData.comparison.speedup_pthread > 0 && (
+                <div>
+                  <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
+                  <div className={`text-4xl font-black font-mono ${compareData.comparison.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>
+                    {compareData.comparison.speedup_pthread.toFixed(2)}x
+                  </div>
+                </div>
+                )}
                 {compareData.comparison.speedup_mpi !== undefined && compareData.comparison.speedup_mpi > 0 && (
                 <div>
                   <div className="text-xs text-zinc-400">Speedup (MPI)</div>
@@ -539,9 +586,10 @@ export default function AnalyticsPage() {
             </div>
 
             {/* Side-by-side panels */}
-            <div className={`grid md:grid-cols-2 ${compareData.mpi ? 'lg:grid-cols-3' : ''} gap-6`}>
+            <div className={`grid md:grid-cols-2 ${compareData.mpi ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-3'} gap-6`}>
               <ResultPanel result={compareData.serial} color="border-blue-700" />
               <ResultPanel result={compareData.parallel} color="border-purple-700" />
+              {compareData.pthread && <ResultPanel result={compareData.pthread} color="border-cyan-700" />}
               {compareData.mpi && <ResultPanel result={compareData.mpi} color="border-green-700" />}
             </div>
           </>
