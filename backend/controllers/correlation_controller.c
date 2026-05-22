@@ -437,9 +437,42 @@ int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
 }
 #endif /* ENABLE_MPI */
 
+/* ── Parallel fetch infrastructure ────────────────────────────────────────
+ * Each subject's paired scores are fetched by its own pthread.
+ * The MongoDB C driver is not thread-safe on a single client, so a mutex
+ * serialises the actual driver call while still allowing the OS to overlap
+ * network/disk wait times across threads.
+ * ──────────────────────────────────────────────────────────────────────── */
+typedef struct {
+    const char   *ref_subject;
+    const char   *class_name;
+    const char   *subject;
+    score_pair_t *pairs;       /* output: fetched pairs   (caller frees) */
+    int           n;           /* output: pair count                      */
+    int           total_students;
+    int           excluded;
+    double        db_ms;       /* output: time inside the DB call (ms)    */
+} fetch_task_t;
+
+static pthread_mutex_t s_db_fetch_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+static void *fetch_subject_worker(void *arg)
+{
+    fetch_task_t *t = (fetch_task_t *)arg;
+    pthread_mutex_lock(&s_db_fetch_mtx);
+    db_get_paired_scores(global_db,
+        t->ref_subject, t->class_name,
+        t->subject,     t->class_name,
+        &t->pairs, &t->n,
+        &t->total_students, &t->excluded, &t->db_ms);
+    pthread_mutex_unlock(&s_db_fetch_mtx);
+    return NULL;
+}
+
 /* ── GET /api/calculate/correlation/all-subjects ──────────────────────────
- * Correlates one reference subject against every other subject in the class.
- * Query params: class, subject (reference), threads (optional)
+ * Phase 1 — N pthreads fetch every subject's paired scores in parallel.
+ * Phase 2 — per subject: Serial (1 thread), OpenMP, Pthreads, MPI (opt).
+ * Query params: class, subject (reference), openmp_threads, pthread_threads
  * ──────────────────────────────────────────────────────────────────────── */
 int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
 {
@@ -489,13 +522,62 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     int prev    = prev_omp;
     int saved_g = g_num_threads;
 
-    double total_serial_ms = 0, total_par_ms = 0, total_pt_ms = 0;
-    double total_mpi_ms = 0, total_db_ms = 0;
+    /* ── Count non-reference subjects ─────────────────────────────────── */
+    int fetch_count = 0;
+    for (int i = 0; i < subject_count; i++)
+        if (strcmp(subjects[i], ref_subject) != 0) fetch_count++;
+
+    if (fetch_count == 0) {
+        omp_set_num_threads(prev); g_num_threads = saved_g;
+        pthread_mutex_unlock(&calc_lock);
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 404, "No other subjects found to compare against");
+    }
+
+    fetch_task_t *tasks    = (fetch_task_t *)calloc((size_t)fetch_count, sizeof(fetch_task_t));
+    pthread_t    *fthreads = (pthread_t    *)malloc(sizeof(pthread_t) * (size_t)fetch_count);
+    if (!tasks || !fthreads) {
+        free(tasks); free(fthreads);
+        omp_set_num_threads(prev); g_num_threads = saved_g;
+        pthread_mutex_unlock(&calc_lock);
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 500, "Memory allocation failed");
+    }
+
+    /* ── Phase 1: Launch one fetch thread per subject ─────────────────── */
+    int fi = 0;
+    for (int i = 0; i < subject_count; i++) {
+        if (strcmp(subjects[i], ref_subject) == 0) continue;
+        tasks[fi].ref_subject = ref_subject;
+        tasks[fi].class_name  = class_name;
+        tasks[fi].subject     = subjects[i];
+        fi++;
+    }
+
+    double t_fetch_start = omp_get_wtime();
+    for (int i = 0; i < fetch_count; i++)
+        pthread_create(&fthreads[i], NULL, fetch_subject_worker, &tasks[i]);
+    for (int i = 0; i < fetch_count; i++)
+        pthread_join(fthreads[i], NULL);
+    double fetch_phase_ms = (omp_get_wtime() - t_fetch_start) * 1000.0;
+    free(fthreads);
+
+    /* Accumulate total DB time reported by individual threads */
+    double total_db_ms = 0.0;
+    for (int i = 0; i < fetch_count; i++)
+        total_db_ms += tasks[i].db_ms;
+
+    /* ── Phase 2: Per-subject calculations ────────────────────────────── */
+    double total_serial_ms = 0, total_par_ms = 0, total_pt_ms = 0, total_mpi_ms = 0;
     int processed = 0;
 
     size_t subj_cap = 65536, subj_len = 0;
     char  *subj_buf = (char *)malloc(subj_cap);
     if (!subj_buf) {
+        for (int i = 0; i < fetch_count; i++) if (tasks[i].pairs) free(tasks[i].pairs);
+        free(tasks);
         omp_set_num_threads(prev); g_num_threads = saved_g;
         pthread_mutex_unlock(&calc_lock);
         for (int i = 0; i < subject_count; i++) free(subjects[i]);
@@ -504,17 +586,16 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     }
     subj_buf[0] = '\0';
 
-    for (int i = 0; i < subject_count; i++) {
-        if (strcmp(subjects[i], ref_subject) == 0) continue;
+    double t_calc_start = omp_get_wtime();
 
-        score_pair_t *pairs = NULL;
-        int n = 0, total_students = 0, excluded = 0;
-        double db_ms = 0.0;
-        db_get_paired_scores(global_db, ref_subject, class_name,
-                             subjects[i], class_name,
-                             &pairs, &n, &total_students, &excluded, &db_ms);
-        total_db_ms += db_ms;
-        if (!pairs || n < 2) { if (pairs) free(pairs); continue; }
+    for (int i = 0; i < fetch_count; i++) {
+        if (!tasks[i].pairs || tasks[i].n < 2) {
+            if (tasks[i].pairs) free(tasks[i].pairs);
+            continue;
+        }
+
+        score_pair_t *pairs = tasks[i].pairs;
+        int           n     = tasks[i].n;
 
         /* Serial — force 1 thread */
         omp_set_num_threads(1); g_num_threads = 1;
@@ -547,6 +628,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         const char *mpi_json = "null";
 #endif
         free(pairs);
+        tasks[i].pairs = NULL;
 
         double sp_par = (par.elapsed_ms > 0) ? serial.elapsed_ms / par.elapsed_ms : 0.0;
         double sp_pt  = (pt.elapsed_ms  > 0) ? serial.elapsed_ms / pt.elapsed_ms  : 0.0;
@@ -568,7 +650,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
             "\"speedup_mpi\":%.4f"
             "}",
             (processed > 0 ? "," : ""),
-            subjects[i], n,
+            tasks[i].subject, n,
             serial.correlation_coefficient, serial.elapsed_ms, serial.threads_used, serial.best_fit_slope, serial.best_fit_intercept,
             par.correlation_coefficient,    par.elapsed_ms,    par.threads_used,    par.best_fit_slope,    par.best_fit_intercept, sp_par,
             pt.correlation_coefficient,     pt.elapsed_ms,     pt.threads_used,     pt.best_fit_slope,     pt.best_fit_intercept,  sp_pt,
@@ -578,6 +660,9 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         processed++;
     }
 
+    double calc_phase_ms = (omp_get_wtime() - t_calc_start) * 1000.0;
+
+    free(tasks);
     omp_set_num_threads(prev); g_num_threads = saved_g;
     pthread_mutex_unlock(&calc_lock);
     for (int i = 0; i < subject_count; i++) free(subjects[i]);
@@ -593,7 +678,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     double speedup_pt  = (total_pt_ms  > 0) ? total_serial_ms / total_pt_ms  : 0.0;
     double speedup_mpi = (total_mpi_ms > 0) ? total_serial_ms / total_mpi_ms : 0.0;
 
-    size_t data_sz = subj_len + 512;
+    size_t data_sz = subj_len + 768;
     char  *data    = (char *)malloc(data_sz);
     if (!data) { free(subj_buf); return SendErrorResponse(conn, 500, "Memory allocation failed"); }
 
@@ -605,6 +690,8 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         "\"pthread_threads\":%d,"
         "\"subjects\":[%s],"
         "\"timing\":{"
+        "\"fetch_phase_ms\":%.4f,"
+        "\"calc_phase_ms\":%.4f,"
         "\"serial_total_ms\":%.4f,"
         "\"parallel_total_ms\":%.4f,"
         "\"pthread_total_ms\":%.4f,"
@@ -617,6 +704,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         "}",
         ref_subject, class_name, req_omp, req_pt,
         subj_buf,
+        fetch_phase_ms, calc_phase_ms,
         total_serial_ms, total_par_ms, total_pt_ms, total_mpi_ms, total_db_ms,
         speedup_par, speedup_pt, speedup_mpi);
 
