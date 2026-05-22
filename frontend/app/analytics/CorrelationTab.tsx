@@ -241,6 +241,9 @@ export default function CorrelationTab() {
   // Action state
   const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | null>(null);
   const [error, setError]                 = useState<string | null>(null);
+  const [openmpThreads, setOpenmpThreads] = useState(4);
+  const [pthreadThreads, setPthreadThreads] = useState(4);
+  const [compareThreads, setCompareThreads] = useState(4);
 
   // Result state
   const [serialResult, setSerialResult]       = useState<CorrelationResult | null>(null);
@@ -317,7 +320,7 @@ export default function CorrelationTab() {
   async function runParallel() {
     setLoading("parallel"); setError(null); setCompareResult(null);
     try {
-      const res  = await fetch(`${API}/api/calculate/correlation/parallel?${buildParams()}`);
+      const res  = await fetch(`${API}/api/calculate/correlation/parallel?${buildParams()}&threads=${openmpThreads}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message ?? "Request failed");
       setParallelResult(json.data);
@@ -333,7 +336,7 @@ export default function CorrelationTab() {
   async function runPthread() {
     setLoading("pthread"); setError(null); setCompareResult(null);
     try {
-      const res  = await fetch(`${API}/api/calculate/correlation/pthread?${buildParams()}`);
+      const res  = await fetch(`${API}/api/calculate/correlation/pthread?${buildParams()}&threads=${pthreadThreads}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message ?? "Request failed");
       setPthreadResult(json.data);
@@ -365,7 +368,7 @@ export default function CorrelationTab() {
   async function runCompare() {
     setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null); setPthreadResult(null); setMpiResult(null);
     try {
-      const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}`);
+      const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}&threads=${compareThreads}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message ?? "Request failed");
       setCompareResult(json.data);
@@ -442,42 +445,91 @@ export default function CorrelationTab() {
       {/* ── Calculation Buttons ── */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">2. Run Correlation</h2>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={runSerial}
-            disabled={!canRun}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-          >
-            {loading === "serial" ? "Running..." : "Run Serial"}
-          </button>
-          <button
-            onClick={runParallel}
-            disabled={!canRun}
-            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-          >
-            {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
-          </button>
-          <button
-            onClick={runPthread}
-            disabled={!canRun}
-            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-          >
-            {loading === "pthread" ? "Running..." : "Run Pthreads"}
-          </button>
-          <button
-            onClick={runMpi}
-            disabled={!canRun}
-            className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-          >
-            {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
-          </button>
-          <button
-            onClick={runCompare}
-            disabled={!canRun}
-            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
-          >
-            {loading === "compare" ? "Comparing..." : "Compare All"}
-          </button>
+        <div className="space-y-3">
+          {/* Serial & MPI — no thread input */}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={runSerial}
+              disabled={!canRun}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "serial" ? "Running..." : "Run Serial"}
+            </button>
+            <button
+              onClick={runMpi}
+              disabled={!canRun}
+              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+            </button>
+          </div>
+
+          {/* Parallel methods with thread count inputs */}
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={openmpThreads}
+                onChange={e => setOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={runParallel}
+              disabled={!canRun}
+              className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
+            </button>
+
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={pthreadThreads}
+                onChange={e => setPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={runPthread}
+              disabled={!canRun}
+              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+            >
+              {loading === "pthread" ? "Running..." : "Run Pthreads"}
+            </button>
+          </div>
+
+          {/* Compare All with thread count */}
+          <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={compareThreads}
+                onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={runCompare}
+              disabled={!canRun}
+              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+            >
+              {loading === "compare" ? "Comparing..." : "Compare All"}
+            </button>
+            <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
+          </div>
         </div>
       </div>
 
