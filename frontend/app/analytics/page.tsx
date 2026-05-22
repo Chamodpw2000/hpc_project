@@ -190,6 +190,7 @@ export default function AnalyticsPage() {
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
   const [compareThreads, setCompareThreads] = useState(4);
+  const [mpiProcesses, setMpiProcesses] = useState(2);
 
   async function removeDuplicates() {
     setLoading("remove-dups");
@@ -277,9 +278,46 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/compare?threads=${compareThreads}`);
-      const json = await res.json();
-      setCompareData(json.data);
+      // All four requests start simultaneously; DB fetches run in parallel on the
+      // server (before calc_lock), calculations then queue at the lock.
+      const [sJson, parJson, ptJson, mpiJson] = await Promise.all([
+        fetch(`${API}/api/calculate/serial`).then(r => r.json()),
+        fetch(`${API}/api/calculate/parallel?threads=${compareThreads}`).then(r => r.json()),
+        fetch(`${API}/api/calculate/pthread?threads=${compareThreads}`).then(r => r.json()),
+        fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null),
+      ]);
+
+      if (!sJson?.data || !parJson?.data || !ptJson?.data)
+        throw new Error(sJson?.message ?? parJson?.message ?? ptJson?.message ?? "Request failed");
+
+      const s: CalcResult   = sJson.data;
+      const par: CalcResult = parJson.data;
+      const pt: CalcResult  = ptJson.data;
+      const mpi: CalcResult | undefined = mpiJson?.data ?? undefined;
+
+      const speedup         = par.elapsed_ms > 0 ? s.elapsed_ms / par.elapsed_ms : 0;
+      const speedup_pthread = pt.elapsed_ms  > 0 ? s.elapsed_ms / pt.elapsed_ms  : 0;
+      const speedup_mpi     = mpi && mpi.elapsed_ms > 0 ? s.elapsed_ms / mpi.elapsed_ms : undefined;
+
+      setCompareData({
+        serial: s, parallel: par, pthread: pt, mpi,
+        comparison: {
+          serial_time_ms:   s.elapsed_ms,
+          parallel_time_ms: par.elapsed_ms,
+          pthread_time_ms:  pt.elapsed_ms,
+          mpi_time_ms:      mpi?.elapsed_ms,
+          db_fetch_ms:      s.db_fetch_ms,
+          speedup,
+          speedup_pthread,
+          speedup_mpi,
+          serial_threads:   s.threads_used,
+          parallel_threads: par.threads_used,
+          pthread_threads:  pt.threads_used,
+          mpi_threads:      mpi?.threads_used,
+          data_size:        s.scores_count,
+          improvement_pct:  (speedup - 1) * 100,
+        },
+      });
       setCompareTotalMs(performance.now() - t0);
     } catch (e) {
       setError(`Comparison failed: ${e}`);
@@ -292,7 +330,7 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/mpi`);
+      const res = await fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`);
       const json = await res.json();
       setMpiOnly(json.data);
       setMpiTotalMs(performance.now() - t0);
@@ -454,8 +492,8 @@ export default function AnalyticsPage() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">2. Get Statistics</h2>
           <div className="space-y-3">
-            {/* Serial & MPI — no thread input */}
-            <div className="flex flex-wrap gap-3">
+            {/* Serial & MPI */}
+            <div className="flex flex-wrap gap-3 items-end">
               <button
                 onClick={runSerial}
                 disabled={loading !== null}
@@ -463,6 +501,18 @@ export default function AnalyticsPage() {
               >
                 {loading === "serial" ? "Running..." : "Run Serial"}
               </button>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={mpiProcesses}
+                  onChange={e => setMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={loading !== null}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
               <button
                 onClick={runMpi}
                 disabled={loading !== null}

@@ -359,17 +359,26 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     omp_set_num_threads(prev);
     g_num_threads = saved_threads;
 
-#ifdef ENABLE_MPI
-    int cmd = MPI_CMD_CALC_SCORES;
-    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    calc_result_t mpi_res = run_mpi(scores, count);
-    double mpi_time_ms = mpi_res.elapsed_ms;
-    double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
-    int mpi_threads = mpi_res.threads_used;
-#else
+    /* Parse optional MPI process count */
+    const char *cmp_qs = ri->query_string ? ri->query_string : "";
+    char cmp_mpi_str[16] = "";
+    mg_get_var(cmp_qs, strlen(cmp_qs), "mpi_processes", cmp_mpi_str, sizeof(cmp_mpi_str));
+    int cmp_req_mpi = atoi(cmp_mpi_str);
+
     double mpi_time_ms = 0.0;
     double speedup_mpi = 0.0;
     int mpi_threads = 0;
+#ifdef ENABLE_MPI
+    calc_result_t mpi_res;
+    memset(&mpi_res, 0, sizeof(mpi_res));
+    {
+        int cmd = MPI_CMD_CALC_SCORES;
+        MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        mpi_res = run_mpi(scores, count, cmp_req_mpi);
+        mpi_time_ms = mpi_res.elapsed_ms;
+        speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
+        mpi_threads = mpi_res.threads_used;
+    }
 #endif
 
     pthread_mutex_unlock(&calc_lock);
@@ -449,6 +458,10 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     }
     int req_threads = get_thread_count(ri);
 
+    char cls_mpi_str[16] = "";
+    mg_get_var(ri->query_string ? ri->query_string : "", ql, "mpi_processes", cls_mpi_str, sizeof(cls_mpi_str));
+    int cls_req_mpi = atoi(cls_mpi_str);
+
     char **subjects = NULL;
     int subject_count = db_get_class_subject_names(global_db, class_filter, &subjects);
     if (subject_count == 0) {
@@ -512,7 +525,7 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
 #ifdef ENABLE_MPI
         int cmd = MPI_CMD_CALC_SCORES;
         MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        calc_result_t mpi_res = run_mpi(scores, count);
+        calc_result_t mpi_res = run_mpi(scores, count, cls_req_mpi);
         double mpi_time_ms = mpi_res.elapsed_ms;
         double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
         int mpi_threads = mpi_res.threads_used;
@@ -648,12 +661,19 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    /* Parse optional process count */
+    const char *mpi_qs  = ri->query_string ? ri->query_string : "";
+    size_t      mpi_qsl = strlen(mpi_qs);
+    char mpi_proc_str[16] = "";
+    mg_get_var(mpi_qs, mpi_qsl, "mpi_processes", mpi_proc_str, sizeof(mpi_proc_str));
+    int req_mpi = atoi(mpi_proc_str);
+
     /* Signal workers to participate in score calculation */
     int cmd = MPI_CMD_CALC_SCORES;
     MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    calc_result_t r = run_mpi(scores, count);
-    
+    calc_result_t r = run_mpi(scores, count, req_mpi);
+
     pthread_mutex_unlock(&calc_lock);
     free(scores);
 

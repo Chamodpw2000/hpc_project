@@ -292,10 +292,17 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
 #include <mpi.h>
 #include "correlation_mpi.h"
 #include "calc_mpi.h"
+    /* Parse optional MPI process count */
+    const char *cmp_qs  = ri->query_string ? ri->query_string : "";
+    size_t      cmp_qsl = strlen(cmp_qs);
+    char cmp_mpi_str[16] = "";
+    mg_get_var(cmp_qs, cmp_qsl, "mpi_processes", cmp_mpi_str, sizeof(cmp_mpi_str));
+    int cmp_req_mpi = atoi(cmp_mpi_str);
+
     /* Signal workers to participate in correlation calculation */
     int cmd = MPI_CMD_CALC_CORR;
     MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    corr_result_t mpi_res = run_corr_mpi(pairs, n);
+    corr_result_t mpi_res = run_corr_mpi(pairs, n, cmp_req_mpi);
     double mpi_time_ms = mpi_res.elapsed_ms;
     double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
     int mpi_threads = mpi_res.threads_used;
@@ -418,12 +425,19 @@ int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    /* Parse optional process count */
+    const char *mpi_qs  = ri->query_string ? ri->query_string : "";
+    size_t      mpi_qsl = strlen(mpi_qs);
+    char mpi_str[16] = "";
+    mg_get_var(mpi_qs, mpi_qsl, "mpi_processes", mpi_str, sizeof(mpi_str));
+    int req_mpi = atoi(mpi_str);
+
     /* Signal workers to participate in correlation calculation */
     int cmd = MPI_CMD_CALC_CORR;
     MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    corr_result_t r = run_corr_mpi(pairs, n);
-    
+    corr_result_t r = run_corr_mpi(pairs, n, req_mpi);
+
     pthread_mutex_unlock(&calc_lock);
 
     char *data = format_corr_json(&r, "mpi", fetch_ms, pairs, n, total_students, excluded);
@@ -493,9 +507,11 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
 
     int req_threads = get_thread_count(ri);  /* fallback if specific params absent */
 
-    char omp_str[16] = "", pt_str[16] = "";
-    mg_get_var(qs, qsl, "openmp_threads",  omp_str, sizeof(omp_str));
-    mg_get_var(qs, qsl, "pthread_threads", pt_str,  sizeof(pt_str));
+    char omp_str[16] = "", pt_str[16] = "", mpi_str_all[16] = "";
+    mg_get_var(qs, qsl, "openmp_threads",  omp_str,     sizeof(omp_str));
+    mg_get_var(qs, qsl, "pthread_threads", pt_str,      sizeof(pt_str));
+    mg_get_var(qs, qsl, "mpi_processes",   mpi_str_all, sizeof(mpi_str_all));
+    int req_mpi_all = atoi(mpi_str_all);
 
     int prev_omp = omp_get_max_threads();
     int req_omp  = atoi(omp_str);
@@ -616,7 +632,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
 #ifdef ENABLE_MPI
         int cmd = MPI_CMD_CALC_CORR;
         MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        corr_result_t mpi_res = run_corr_mpi(pairs, n);
+        corr_result_t mpi_res = run_corr_mpi(pairs, n, req_mpi_all);
         total_mpi_ms += mpi_res.elapsed_ms;
         char mpi_entry[256];
         snprintf(mpi_entry, sizeof(mpi_entry),

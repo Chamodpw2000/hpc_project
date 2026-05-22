@@ -16,7 +16,7 @@
  * Scatters pairs across ranks, each rank computes 5 local sums,
  * then MPI_Reduce aggregates them back to Rank 0.
  */
-corr_result_t run_corr_mpi(const score_pair_t *pairs, int n);
+corr_result_t run_corr_mpi(const score_pair_t *pairs, int n, int req_procs);
 
 /*
  * Worker-side handler for MPI_CMD_CALC_CORR.
