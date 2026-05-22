@@ -3,12 +3,15 @@
  * Distributed-memory parallel statistical computation using MPI collectives.
  *
  * Communication pattern per API request:
- *   Rank 0 → All:   MPI_Bcast(N)               — dataset size
- *   Rank 0 → All:   MPI_Scatterv(scores)       — distribute data
- *   All → Rank 0:   MPI_Reduce(sum, min, max)  — phase 1 stats
- *   Rank 0 → All:   MPI_Bcast(mean)            — share global mean
- *   All → Rank 0:   MPI_Reduce(var, grades)    — phase 2 stats
- *   All → Rank 0:   MPI_Gatherv(local_scores)  — for median sort
+ *   Rank 0 → All:   MPI_Bcast(use_size)          — effective process count
+ *   Rank 0 → All:   MPI_Bcast(N)                 — dataset size
+ *   Rank 0 → All:   MPI_Scatterv(scores)         — distribute data
+ *   All → Rank 0:   MPI_Reduce(sum, min, max)    — phase 1 stats
+ *   Rank 0 → All:   MPI_Bcast(mean)              — share global mean
+ *   All → Rank 0:   MPI_Reduce(var, grades)      — phase 2 stats
+ *   All → Rank 0:   MPI_Gatherv(local_scores)    — for median sort
+ *
+ * req_procs allows using fewer processes than world_size via MPI_Comm_split.
  *
  * Copyright (c) 2026
  * MIT License
@@ -47,8 +50,9 @@ static int cmp_double(const void *a, const void *b)
 
 /* ──────────────────────────────────────────────────────────────────────────
  * run_mpi — called ONLY on Rank 0 (the HTTP server process)
+ * req_procs: requested process count (0 = use all available)
  * ──────────────────────────────────────────────────────────────────────── */
-calc_result_t run_mpi(const double *scores, int n)
+calc_result_t run_mpi(const double *scores, int n, int req_procs)
 {
     calc_result_t r;
     memset(&r, 0, sizeof(r));
@@ -57,26 +61,37 @@ calc_result_t run_mpi(const double *scores, int n)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
+    /* ── Determine effective process count ── */
+    int use_size = (req_procs > 0 && req_procs <= world_size) ? req_procs : world_size;
+    MPI_Bcast(&use_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    /* ── Split communicator — excluded ranks receive MPI_COMM_NULL ── */
+    int color = (rank < use_size) ? 0 : MPI_UNDEFINED;
+    MPI_Comm sub_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, color, rank, &sub_comm);
+
     r.count        = n;
-    r.threads_used = world_size;
+    r.threads_used = use_size;
 
     double t_start = omp_get_wtime();
 
-    /* ── Step 1: Broadcast N to all ranks ── */
-    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    /* ── Step 1: Broadcast N to all sub_comm ranks ── */
+    MPI_Bcast(&n, 1, MPI_INT, 0, sub_comm);
 
     /* ── Step 2: Compute chunk distribution ── */
-    int *sendcounts = (int *)malloc(sizeof(int) * world_size);
-    int *displs     = (int *)malloc(sizeof(int) * world_size);
-    compute_distribution(n, world_size, sendcounts, displs);
+    int *sendcounts = (int *)malloc(sizeof(int) * use_size);
+    int *displs     = (int *)malloc(sizeof(int) * use_size);
+    compute_distribution(n, use_size, sendcounts, displs);
 
-    int local_n = sendcounts[rank];
+    int sub_rank;
+    MPI_Comm_rank(sub_comm, &sub_rank);
+    int local_n = sendcounts[sub_rank];
     double *local_scores = (double *)malloc(sizeof(double) * local_n);
 
-    /* ── Step 3: Scatter scores to all ranks ── */
+    /* ── Step 3: Scatter scores to all sub_comm ranks ── */
     MPI_Scatterv(scores, sendcounts, displs, MPI_DOUBLE,
                  local_scores, local_n, MPI_DOUBLE,
-                 0, MPI_COMM_WORLD);
+                 0, sub_comm);
 
     /* ── Step 4: Phase 1 — local sum, min, max ── */
     double local_sum = 0.0;
@@ -90,18 +105,18 @@ calc_result_t run_mpi(const double *scores, int n)
     }
 
     double global_sum, global_min, global_max;
-    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
+    MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, sub_comm);
+    MPI_Reduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, 0, sub_comm);
 
-    r.sum = global_sum;
-    r.min = global_min;
-    r.max = global_max;
+    r.sum  = global_sum;
+    r.min  = global_min;
+    r.max  = global_max;
     r.mean = global_sum / n;
 
     /* ── Step 5: Broadcast global mean ── */
     double global_mean = r.mean;
-    MPI_Bcast(&global_mean, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&global_mean, 1, MPI_DOUBLE, 0, sub_comm);
 
     /* ── Step 6: Phase 2 — local variance and grade distribution ── */
     double local_var_sum = 0.0;
@@ -120,8 +135,8 @@ calc_result_t run_mpi(const double *scores, int n)
 
     double global_var_sum;
     int global_grades[5];
-    MPI_Reduce(&local_var_sum, &global_var_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_var_sum, &global_var_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
+    MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, sub_comm);
 
     r.variance = global_var_sum / n;
     r.stddev   = sqrt(r.variance);
@@ -138,17 +153,17 @@ calc_result_t run_mpi(const double *scores, int n)
             dummy += sin(local_scores[i]) * cos(local_scores[i]);
     (void)dummy;
 
-    /* ── Step 8: Gather all scores back to Rank 0 for median sort ── */
+    /* ── Step 8: Gather all scores back to sub_rank 0 for median sort ── */
     double *gathered = NULL;
-    if (rank == 0) {
+    if (sub_rank == 0) {
         gathered = (double *)malloc(sizeof(double) * n);
     }
     MPI_Gatherv(local_scores, local_n, MPI_DOUBLE,
                 gathered, sendcounts, displs, MPI_DOUBLE,
-                0, MPI_COMM_WORLD);
+                0, sub_comm);
 
-    /* ── Step 9: Rank 0 sorts and picks median ── */
-    if (rank == 0 && gathered) {
+    /* ── Step 9: sub_rank 0 sorts and picks median ── */
+    if (sub_rank == 0 && gathered) {
         double sort_start = omp_get_wtime();
         qsort(gathered, (size_t)n, sizeof(double), cmp_double);
         r.sort_time_ms = (omp_get_wtime() - sort_start) * 1000.0;
@@ -162,6 +177,7 @@ calc_result_t run_mpi(const double *scores, int n)
     free(local_scores);
     free(sendcounts);
     free(displs);
+    MPI_Comm_free(&sub_comm);
 
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
@@ -169,28 +185,47 @@ calc_result_t run_mpi(const double *scores, int n)
 
 /* ──────────────────────────────────────────────────────────────────────────
  * mpi_worker_calc_scores — called by worker ranks (rank > 0)
- * Participates in the same collective operations as run_mpi() on Rank 0.
+ * Receives use_size, joins sub-communicator (or skips if excluded),
+ * then participates in the same collective operations as run_mpi().
  * ──────────────────────────────────────────────────────────────────────── */
 void mpi_worker_calc_scores(int rank, int world_size)
 {
+    (void)world_size;
+
+    /* ── Receive effective process count ── */
+    int use_size = 0;
+    MPI_Bcast(&use_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    int color = (rank < use_size) ? 0 : MPI_UNDEFINED;
+    MPI_Comm sub_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, color, rank, &sub_comm);
+
+    if (sub_comm == MPI_COMM_NULL) return;  /* excluded from this run */
+
+    int sub_rank;
+    MPI_Comm_rank(sub_comm, &sub_rank);
+
     /* ── Step 1: Receive N ── */
     int n = 0;
-    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&n, 1, MPI_INT, 0, sub_comm);
 
-    if (n <= 0) return;
+    if (n <= 0) {
+        MPI_Comm_free(&sub_comm);
+        return;
+    }
 
     /* ── Step 2: Compute chunk distribution ── */
-    int *sendcounts = (int *)malloc(sizeof(int) * world_size);
-    int *displs     = (int *)malloc(sizeof(int) * world_size);
-    compute_distribution(n, world_size, sendcounts, displs);
+    int *sendcounts = (int *)malloc(sizeof(int) * use_size);
+    int *displs     = (int *)malloc(sizeof(int) * use_size);
+    compute_distribution(n, use_size, sendcounts, displs);
 
-    int local_n = sendcounts[rank];
+    int local_n = sendcounts[sub_rank];
     double *local_scores = (double *)malloc(sizeof(double) * local_n);
 
     /* ── Step 3: Receive scattered chunk ── */
     MPI_Scatterv(NULL, sendcounts, displs, MPI_DOUBLE,
                  local_scores, local_n, MPI_DOUBLE,
-                 0, MPI_COMM_WORLD);
+                 0, sub_comm);
 
     /* ── Step 4: Phase 1 — local sum, min, max ── */
     double local_sum = 0.0;
@@ -204,13 +239,13 @@ void mpi_worker_calc_scores(int rank, int world_size)
     }
 
     double global_sum, global_min, global_max;
-    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
+    MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, sub_comm);
+    MPI_Reduce(&local_max, &global_max, 1, MPI_DOUBLE, MPI_MAX, 0, sub_comm);
 
     /* ── Step 5: Receive global mean ── */
     double global_mean = 0.0;
-    MPI_Bcast(&global_mean, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&global_mean, 1, MPI_DOUBLE, 0, sub_comm);
 
     /* ── Step 6: Phase 2 — local variance and grades ── */
     double local_var_sum = 0.0;
@@ -229,8 +264,8 @@ void mpi_worker_calc_scores(int rank, int world_size)
 
     double global_var_sum;
     int global_grades[5];
-    MPI_Reduce(&local_var_sum, &global_var_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_var_sum, &global_var_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
+    MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, sub_comm);
 
     /* ── Step 7: Dummy load ── */
     volatile double dummy = 0.0;
@@ -242,11 +277,12 @@ void mpi_worker_calc_scores(int rank, int world_size)
     /* ── Step 8: Send local data back for median ── */
     MPI_Gatherv(local_scores, local_n, MPI_DOUBLE,
                 NULL, sendcounts, displs, MPI_DOUBLE,
-                0, MPI_COMM_WORLD);
+                0, sub_comm);
 
     free(local_scores);
     free(sendcounts);
     free(displs);
+    MPI_Comm_free(&sub_comm);
 }
 
 #endif /* ENABLE_MPI */

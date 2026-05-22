@@ -270,6 +270,8 @@ export default function CorrelationTab() {
   const [compareThreads, setCompareThreads] = useState(4);
   const [allOpenmpThreads, setAllOpenmpThreads]   = useState(4);
   const [allPthreadThreads, setAllPthreadThreads] = useState(4);
+  const [mpiProcesses, setMpiProcesses]           = useState(2);
+  const [allMpiProcesses, setAllMpiProcesses]     = useState(2);
 
   // Result state
   const [serialResult, setSerialResult]           = useState<CorrelationResult | null>(null);
@@ -380,7 +382,7 @@ export default function CorrelationTab() {
   async function runMpi() {
     setLoading("mpi"); setError(null); setCompareResult(null);
     try {
-      const res  = await fetch(`${API}/api/calculate/correlation/mpi?${buildParams()}`);
+      const res  = await fetch(`${API}/api/calculate/correlation/mpi?${buildParams()}&mpi_processes=${mpiProcesses}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message ?? "Request failed");
       setMpiResult(json.data);
@@ -394,12 +396,54 @@ export default function CorrelationTab() {
   }
 
   async function runCompare() {
-    setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null); setPthreadResult(null); setMpiResult(null);
+    setLoading("compare"); setError(null);
+    setSerialResult(null); setParallelResult(null); setPthreadResult(null); setMpiResult(null);
     try {
-      const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}&threads=${compareThreads}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? "Request failed");
-      setCompareResult(json.data);
+      const base = `${API}/api/calculate/correlation`;
+      const p    = buildParams();
+
+      // All requests start simultaneously — DB fetches run in parallel on the server
+      // (prepare_pairs runs before calc_lock), calculations then queue at the lock.
+      const [sJson, parJson, ptJson, mpiJson] = await Promise.all([
+        fetch(`${base}/serial?${p}`)                              .then(r => r.json()),
+        fetch(`${base}/parallel?${p}&threads=${compareThreads}`)  .then(r => r.json()),
+        fetch(`${base}/pthread?${p}&threads=${compareThreads}`)   .then(r => r.json()),
+        fetch(`${base}/mpi?${p}&mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null),
+      ]);
+
+      if (!sJson?.data || !parJson?.data || !ptJson?.data)
+        throw new Error(sJson?.message ?? parJson?.message ?? ptJson?.message ?? "Request failed");
+
+      const s:   CorrelationResult = sJson.data;
+      const par: CorrelationResult = parJson.data;
+      const pt:  CorrelationResult = ptJson.data;
+      const mpi: CorrelationResult | undefined = mpiJson?.data ?? undefined;
+
+      const speedup         = par.elapsed_ms > 0 ? s.elapsed_ms / par.elapsed_ms : 0;
+      const speedup_pthread = pt.elapsed_ms  > 0 ? s.elapsed_ms / pt.elapsed_ms  : 0;
+      const speedup_mpi     = mpi && mpi.elapsed_ms > 0 ? s.elapsed_ms / mpi.elapsed_ms : undefined;
+
+      setCompareResult({
+        serial: s, parallel: par, pthread: pt, mpi,
+        comparison: {
+          serial_time_ms:   s.elapsed_ms,
+          parallel_time_ms: par.elapsed_ms,
+          pthread_time_ms:  pt.elapsed_ms,
+          mpi_time_ms:      mpi?.elapsed_ms,
+          db_fetch_ms:      s.db_fetch_ms,
+          speedup,
+          speedup_pthread,
+          speedup_mpi,
+          serial_threads:   s.threads_used,
+          parallel_threads: par.threads_used,
+          pthread_threads:  pt.threads_used,
+          mpi_threads:      mpi?.threads_used,
+          n_pairs:          s.n_pairs,
+          total_students:   s.total_students,
+          excluded:         s.excluded,
+          improvement_pct:  (speedup - 1) * 100,
+        },
+      });
     } catch (e) {
       setError(`Correlation comparison failed: ${e}`);
     }
@@ -415,6 +459,7 @@ export default function CorrelationTab() {
         subject: refSubject,
         openmp_threads:  String(allOpenmpThreads),
         pthread_threads: String(allPthreadThreads),
+        mpi_processes:   String(allMpiProcesses),
       });
       const res  = await fetch(`${API}/api/calculate/correlation/all-subjects?${params}`);
       const json = await res.json();
@@ -518,11 +563,18 @@ export default function CorrelationTab() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
             <h2 className="text-lg font-semibold mb-4">2. Run Correlation</h2>
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 items-end">
                 <button onClick={runSerial} disabled={!canRun}
                   className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
                   {loading === "serial" ? "Running..." : "Run Serial"}
                 </button>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
+                  <input type="number" min={1} max={64} value={mpiProcesses}
+                    onChange={e => setMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRun}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50" />
+                </div>
                 <button onClick={runMpi} disabled={!canRun}
                   className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
                   {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
@@ -717,6 +769,18 @@ export default function CorrelationTab() {
                   max={256}
                   value={allPthreadThreads}
                   onChange={e => setAllPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={!canRunAll}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={allMpiProcesses}
+                  onChange={e => setAllMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
                   disabled={!canRunAll}
                   className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
                 />

@@ -3,9 +3,13 @@
  * Distributed Pearson r using a single MPI_Reduce of 5 sums.
  *
  * Communication pattern:
- *   Rank 0 → All:   MPI_Bcast(N)            — number of pairs
- *   Rank 0 → All:   MPI_Scatterv(pairs)     — distribute data
- *   All → Rank 0:   MPI_Reduce(5 sums)      — aggregate partial sums
+ *   Rank 0 → All:   MPI_Bcast(use_size)       — effective process count
+ *   Rank 0 → All:   MPI_Bcast(N)              — number of pairs
+ *   Rank 0 → All:   MPI_Scatterv(pairs)       — distribute data
+ *   All → Rank 0:   MPI_Reduce(5 sums)        — aggregate partial sums
+ *
+ * use_size allows the caller to request fewer processes than world_size.
+ * MPI_Comm_split creates a sub-communicator so excluded ranks skip work.
  *
  * Copyright (c) 2026
  * MIT License
@@ -46,8 +50,9 @@ static MPI_Datatype create_pair_type(void)
 
 /* ──────────────────────────────────────────────────────────────────────────
  * run_corr_mpi — called ONLY on Rank 0
+ * req_procs: requested process count (0 = use all available)
  * ──────────────────────────────────────────────────────────────────────── */
-corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
+corr_result_t run_corr_mpi(const score_pair_t *pairs, int n, int req_procs)
 {
     corr_result_t r;
     memset(&r, 0, sizeof(r));
@@ -56,28 +61,39 @@ corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
+    /* ── Determine effective process count ── */
+    int use_size = (req_procs > 0 && req_procs <= world_size) ? req_procs : world_size;
+    MPI_Bcast(&use_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    /* ── Split communicator — excluded ranks receive MPI_COMM_NULL ── */
+    int color = (rank < use_size) ? 0 : MPI_UNDEFINED;
+    MPI_Comm sub_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, color, rank, &sub_comm);
+
     r.n_pairs      = n;
-    r.threads_used = world_size;
+    r.threads_used = use_size;
 
     double t_start = omp_get_wtime();
 
     MPI_Datatype pair_type = create_pair_type();
 
     /* ── Step 1: Broadcast N ── */
-    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&n, 1, MPI_INT, 0, sub_comm);
 
     /* ── Step 2: Compute distribution ── */
-    int *sendcounts = (int *)malloc(sizeof(int) * world_size);
-    int *displs     = (int *)malloc(sizeof(int) * world_size);
-    compute_pair_distribution(n, world_size, sendcounts, displs);
+    int *sendcounts = (int *)malloc(sizeof(int) * use_size);
+    int *displs     = (int *)malloc(sizeof(int) * use_size);
+    compute_pair_distribution(n, use_size, sendcounts, displs);
 
-    int local_n = sendcounts[rank];
+    int sub_rank;
+    MPI_Comm_rank(sub_comm, &sub_rank);
+    int local_n = sendcounts[sub_rank];
     score_pair_t *local_pairs = (score_pair_t *)malloc(sizeof(score_pair_t) * local_n);
 
     /* ── Step 3: Scatter pairs ── */
     MPI_Scatterv(pairs, sendcounts, displs, pair_type,
                  local_pairs, local_n, pair_type,
-                 0, MPI_COMM_WORLD);
+                 0, sub_comm);
 
     /* ── Step 4: Local computation — 5 partial sums ── */
     double local_sums[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -91,7 +107,7 @@ corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
 
     /* ── Step 5: Reduce all 5 sums at once ── */
     double global_sums[5];
-    MPI_Reduce(local_sums, global_sums, 5, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(local_sums, global_sums, 5, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
 
     /* ── Step 6: Rank 0 computes Pearson r ── */
     double sum_x  = global_sums[0];
@@ -113,6 +129,7 @@ corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
     free(sendcounts);
     free(displs);
     MPI_Type_free(&pair_type);
+    MPI_Comm_free(&sub_comm);
 
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
@@ -120,32 +137,49 @@ corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
 
 /* ──────────────────────────────────────────────────────────────────────────
  * mpi_worker_calc_corr — called by worker ranks (rank > 0)
+ * Receives use_size, joins sub-communicator (or skips if excluded),
+ * then participates in Scatterv and Reduce collectives.
  * ──────────────────────────────────────────────────────────────────────── */
 void mpi_worker_calc_corr(int rank, int world_size)
 {
+    (void)world_size;
+
+    /* ── Receive effective process count ── */
+    int use_size = 0;
+    MPI_Bcast(&use_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    int color = (rank < use_size) ? 0 : MPI_UNDEFINED;
+    MPI_Comm sub_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, color, rank, &sub_comm);
+
+    if (sub_comm == MPI_COMM_NULL) return;  /* excluded from this run */
+
     MPI_Datatype pair_type = create_pair_type();
 
     /* ── Receive N ── */
     int n = 0;
-    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&n, 1, MPI_INT, 0, sub_comm);
 
     if (n <= 0) {
         MPI_Type_free(&pair_type);
+        MPI_Comm_free(&sub_comm);
         return;
     }
 
     /* ── Compute distribution ── */
-    int *sendcounts = (int *)malloc(sizeof(int) * world_size);
-    int *displs     = (int *)malloc(sizeof(int) * world_size);
-    compute_pair_distribution(n, world_size, sendcounts, displs);
+    int *sendcounts = (int *)malloc(sizeof(int) * use_size);
+    int *displs     = (int *)malloc(sizeof(int) * use_size);
+    compute_pair_distribution(n, use_size, sendcounts, displs);
 
-    int local_n = sendcounts[rank];
+    int sub_rank;
+    MPI_Comm_rank(sub_comm, &sub_rank);
+    int local_n = sendcounts[sub_rank];
     score_pair_t *local_pairs = (score_pair_t *)malloc(sizeof(score_pair_t) * local_n);
 
     /* ── Receive scattered chunk ── */
     MPI_Scatterv(NULL, sendcounts, displs, pair_type,
                  local_pairs, local_n, pair_type,
-                 0, MPI_COMM_WORLD);
+                 0, sub_comm);
 
     /* ── Local computation ── */
     double local_sums[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
@@ -159,12 +193,13 @@ void mpi_worker_calc_corr(int rank, int world_size)
 
     /* ── Reduce ── */
     double global_sums[5];
-    MPI_Reduce(local_sums, global_sums, 5, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(local_sums, global_sums, 5, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
 
     free(local_pairs);
     free(sendcounts);
     free(displs);
     MPI_Type_free(&pair_type);
+    MPI_Comm_free(&sub_comm);
 }
 
 #endif /* ENABLE_MPI */
