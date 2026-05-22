@@ -82,6 +82,25 @@ interface AllSubjectsResult {
   };
 }
 
+interface SingleMethodSubjectEntry {
+  subject: string;
+  n_pairs: number;
+  r: number;
+  elapsed_ms: number;
+  threads_used: number;
+  slope: number;
+  intercept: number;
+}
+interface SingleMethodAllResult {
+  method: string;
+  reference_subject: string;
+  class_name: string;
+  threads: number;
+  fetch_ms: number;
+  calc_ms: number;
+  subjects: SingleMethodSubjectEntry[];
+}
+
 type AllDisplayMode = "serial" | "parallel" | "pthread" | "mpi" | "compare" | null;
 
 const API = "http://localhost:8090";
@@ -373,7 +392,7 @@ export default function CorrelationTab() {
   const [refSubject, setRefSubject]       = useState("");
 
   // Action state
-  const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | "all" | null>(null);
+  const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | "compare-fast" | "all" | "all-compare" | null>(null);
   const [error, setError]                 = useState<string | null>(null);
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
@@ -562,6 +581,50 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
+  async function runCompareFast() {
+    setLoading("compare-fast"); setError(null);
+    setSerialResult(null); setParallelResult(null); setPthreadResult(null); setMpiResult(null);
+    try {
+      const p   = buildParams();
+      const res = await fetch(
+        `${API}/api/calculate/correlation/compare?${p}&threads=${compareThreads}&mpi_processes=${mpiProcesses}`
+      );
+      const json = await res.json();
+      if (!res.ok || !json?.data?.serial || !json?.data?.parallel || !json?.data?.pthread)
+        throw new Error(json?.message ?? "Request failed");
+
+      const d = json.data;
+      const shared = d.comparison.db_fetch_ms;
+      setCompareResult({
+        serial: d.serial, parallel: d.parallel, pthread: d.pthread, mpi: d.mpi ?? undefined,
+        comparison: {
+          serial_time_ms:       d.comparison.serial_time_ms,
+          parallel_time_ms:     d.comparison.parallel_time_ms,
+          pthread_time_ms:      d.comparison.pthread_time_ms,
+          mpi_time_ms:          d.comparison.mpi_time_ms,
+          serial_db_fetch_ms:   shared,
+          parallel_db_fetch_ms: shared,
+          pthread_db_fetch_ms:  shared,
+          mpi_db_fetch_ms:      shared,
+          speedup:              d.comparison.speedup,
+          speedup_pthread:      d.comparison.speedup_pthread,
+          speedup_mpi:          d.comparison.speedup_mpi,
+          serial_threads:       d.comparison.serial_threads,
+          parallel_threads:     d.comparison.parallel_threads,
+          pthread_threads:      d.comparison.pthread_threads,
+          mpi_threads:          d.comparison.mpi_threads,
+          n_pairs:              d.comparison.n_pairs,
+          total_students:       d.comparison.total_students,
+          excluded:             d.comparison.excluded,
+          improvement_pct:      d.comparison.improvement_pct,
+        },
+      });
+    } catch (e) {
+      setError(`Correlation comparison failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   async function runAllSubjects(displayMode: Exclude<AllDisplayMode, null> = "compare") {
     if (!selectedClass || !refSubject) return;
     setLoading("all"); setError(null); setAllSubjectsResult(null);
@@ -584,12 +647,77 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
+  async function runAllSubjectsCompare() {
+    if (!selectedClass || !refSubject) return;
+    setLoading("all-compare"); setError(null); setAllSubjectsResult(null);
+    setAllDisplayMode("compare");
+    try {
+      const base = new URLSearchParams({
+        class: selectedClass, subject: refSubject,
+        openmp_threads:  String(allOpenmpThreads),
+        pthread_threads: String(allPthreadThreads),
+        mpi_processes:   String(allMpiProcesses),
+      });
+      const url = `${API}/api/calculate/correlation/all-subjects-method?${base}`;
+
+      // Run sequentially to avoid calc_lock contention
+      const sJson   = await fetch(`${url}&method=serial`).then(r => r.json());
+      const parJson = await fetch(`${url}&method=parallel`).then(r => r.json());
+      const ptJson  = await fetch(`${url}&method=pthread`).then(r => r.json());
+      const mpiJson = await fetch(`${url}&method=mpi`).then(r => r.json()).catch(() => null);
+
+      if (!sJson?.data || !parJson?.data || !ptJson?.data)
+        throw new Error(sJson?.message ?? parJson?.message ?? "Request failed");
+
+      const s:   SingleMethodAllResult = sJson.data;
+      const par: SingleMethodAllResult = parJson.data;
+      const pt:  SingleMethodAllResult = ptJson.data;
+      const mpi: SingleMethodAllResult | null = mpiJson?.data ?? null;
+
+      // Merge 4 per-method responses into AllSubjectsResult
+      const subjectMap = new Map<string, SubjectLineResult>();
+      s.subjects.forEach(e => subjectMap.set(e.subject, {
+        subject: e.subject, n_pairs: e.n_pairs,
+        serial:   { r: e.r, elapsed_ms: e.elapsed_ms, threads_used: e.threads_used, slope: e.slope, intercept: e.intercept },
+        parallel: { r: 0, elapsed_ms: 0, threads_used: 0, slope: 0, intercept: 0 },
+        pthread:  { r: 0, elapsed_ms: 0, threads_used: 0, slope: 0, intercept: 0 },
+      }));
+      par.subjects.forEach(e => { const ex = subjectMap.get(e.subject); if (ex) ex.parallel = { r: e.r, elapsed_ms: e.elapsed_ms, threads_used: e.threads_used, slope: e.slope, intercept: e.intercept, speedup: s.subjects.find(x => x.subject === e.subject) ? (s.subjects.find(x => x.subject === e.subject)!.elapsed_ms > 0 ? s.subjects.find(x => x.subject === e.subject)!.elapsed_ms / e.elapsed_ms : 0) : 0 }; });
+      pt.subjects.forEach(e  => { const ex = subjectMap.get(e.subject); if (ex) ex.pthread  = { r: e.r, elapsed_ms: e.elapsed_ms, threads_used: e.threads_used, slope: e.slope, intercept: e.intercept, speedup: s.subjects.find(x => x.subject === e.subject) ? (s.subjects.find(x => x.subject === e.subject)!.elapsed_ms > 0 ? s.subjects.find(x => x.subject === e.subject)!.elapsed_ms / e.elapsed_ms : 0) : 0 }; });
+      if (mpi) mpi.subjects.forEach(e => { const ex = subjectMap.get(e.subject); if (ex) ex.mpi = { r: e.r, elapsed_ms: e.elapsed_ms, threads_used: e.threads_used, slope: e.slope, intercept: e.intercept, speedup: s.subjects.find(x => x.subject === e.subject) ? (s.subjects.find(x => x.subject === e.subject)!.elapsed_ms > 0 ? s.subjects.find(x => x.subject === e.subject)!.elapsed_ms / e.elapsed_ms : 0) : 0 }; });
+
+      const combined: AllSubjectsResult = {
+        reference_subject: s.reference_subject,
+        class_name: s.class_name,
+        openmp_threads: par.threads,
+        pthread_threads: pt.threads,
+        subjects: Array.from(subjectMap.values()),
+        timing: {
+          fetch_phase_ms:    Math.max(s.fetch_ms, par.fetch_ms, pt.fetch_ms, mpi?.fetch_ms ?? 0),
+          calc_phase_ms:     Math.max(s.calc_ms,  par.calc_ms,  pt.calc_ms,  mpi?.calc_ms  ?? 0),
+          serial_total_ms:   s.calc_ms,
+          parallel_total_ms: par.calc_ms,
+          pthread_total_ms:  pt.calc_ms,
+          mpi_total_ms:      mpi?.calc_ms ?? 0,
+          db_fetch_ms:       s.fetch_ms,
+          speedup_parallel:  s.calc_ms > 0 && par.calc_ms > 0 ? s.calc_ms / par.calc_ms : 0,
+          speedup_pthread:   s.calc_ms > 0 && pt.calc_ms  > 0 ? s.calc_ms / pt.calc_ms  : 0,
+          speedup_mpi:       s.calc_ms > 0 && (mpi?.calc_ms ?? 0) > 0 ? s.calc_ms / (mpi!.calc_ms) : 0,
+        },
+      };
+      setAllSubjectsResult(combined);
+    } catch (e) {
+      setError(`One vs All comparison failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   const canRun    = !loading && !!subject1 && !!subject2;
   const canRunAll = !loading && !!selectedClass && !!refSubject;
   const speedup   = compareResult ? compareResult.comparison.speedup : 0;
 
   // Determine which button shows loading spinner in One vs All
-  const allRunning = loading === "all" ? allDisplayMode : null;
+  const allRunning = loading === "all" ? allDisplayMode : (loading === "all-compare" ? "compare" : null);
 
   return (
     <>
@@ -733,6 +861,10 @@ export default function CorrelationTab() {
                 <button onClick={runCompare} disabled={!canRun}
                   className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
                   {loading === "compare" ? "Comparing..." : "Compare All"}
+                </button>
+                <button onClick={runCompareFast} disabled={!canRun}
+                  className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
+                  {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
                 </button>
                 <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
               </div>
@@ -954,14 +1086,21 @@ export default function CorrelationTab() {
               {/* Row 3: Compare All */}
               <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
                 <button
-                  onClick={() => runAllSubjects("compare")}
+                  onClick={runAllSubjectsCompare}
                   disabled={!canRunAll}
                   className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
                 >
-                  {allRunning === "compare" ? "Comparing..." : "Compare All"}
+                  {loading === "all-compare" ? "Comparing..." : "Compare All"}
+                </button>
+                <button
+                  onClick={() => runAllSubjects("compare")}
+                  disabled={!canRunAll}
+                  className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+                >
+                  {loading === "all" && allDisplayMode === "compare" ? "Comparing..." : "Compare All (Shared)"}
                 </button>
                 <span className="text-xs text-zinc-500 self-end pb-2">
-                  Runs Serial + OpenMP + Pthreads + MPI for every subject using the thread counts above
+                  Compare All: separate fetch per method · Compare All (Shared): one fetch for all methods
                 </span>
               </div>
             </div>

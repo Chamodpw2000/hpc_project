@@ -474,6 +474,7 @@ typedef struct {
     const char   *ref_subject;
     const char   *class_name;
     const char   *subject;
+    int           use_pool;    /* 1 = pool connection (parallel), 0 = mutex (serial) */
     score_pair_t *pairs;       /* output: fetched pairs   (caller frees) */
     int           n;           /* output: pair count                      */
     int           total_students;
@@ -486,13 +487,40 @@ static pthread_mutex_t s_db_fetch_mtx = PTHREAD_MUTEX_INITIALIZER;
 static void *fetch_subject_worker(void *arg)
 {
     fetch_task_t *t = (fetch_task_t *)arg;
-    pthread_mutex_lock(&s_db_fetch_mtx);
-    db_get_paired_scores(global_db,
-        t->ref_subject, t->class_name,
-        t->subject,     t->class_name,
-        &t->pairs, &t->n,
-        &t->total_students, &t->excluded, &t->db_ms);
-    pthread_mutex_unlock(&s_db_fetch_mtx);
+
+    if (t->use_pool && global_db->pool) {
+        /* Truly parallel: each thread pops its own client from the pool */
+        mongoc_client_t *client = mongoc_client_pool_pop(global_db->pool);
+        if (!client) return NULL;
+
+        db_connection_t tmp;
+        memset(&tmp, 0, sizeof(tmp));
+        tmp.pool      = global_db->pool;
+        tmp.client    = client;
+        tmp.connected = 1;
+        strncpy(tmp.db_name, global_db->db_name, sizeof(tmp.db_name) - 1);
+        tmp.scores_collection   = mongoc_client_get_collection(client, tmp.db_name, "scores");
+        tmp.students_collection = mongoc_client_get_collection(client, tmp.db_name, "students");
+
+        db_get_paired_scores(&tmp,
+            t->ref_subject, t->class_name,
+            t->subject,     t->class_name,
+            &t->pairs, &t->n,
+            &t->total_students, &t->excluded, &t->db_ms);
+
+        mongoc_collection_destroy(tmp.scores_collection);
+        mongoc_collection_destroy(tmp.students_collection);
+        mongoc_client_pool_push(global_db->pool, client);
+    } else {
+        /* Serialised fetch (existing behaviour for shared-fetch mode) */
+        pthread_mutex_lock(&s_db_fetch_mtx);
+        db_get_paired_scores(global_db,
+            t->ref_subject, t->class_name,
+            t->subject,     t->class_name,
+            &t->pairs, &t->n,
+            &t->total_students, &t->excluded, &t->db_ms);
+        pthread_mutex_unlock(&s_db_fetch_mtx);
+    }
     return NULL;
 }
 
@@ -741,4 +769,208 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     int ret = SendJSONResponse(conn, "success", "One vs All correlation completed", data);
     free(data);
     return ret;
+}
+
+/* ── GET /api/calculate/correlation/all-subjects-method ───────────────────
+ * Single-method variant: fetches using method-appropriate parallelism then
+ * runs only the requested calculation method.
+ * Required: class, subject, method (serial|parallel|pthread|mpi)
+ * Optional: openmp_threads, pthread_threads, mpi_processes
+ * ──────────────────────────────────────────────────────────────────────── */
+int CorrAllSubjectsMethodHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    const char *qs  = ri->query_string ? ri->query_string : "";
+    size_t      qsl = strlen(qs);
+    char class_name[256] = "", ref_subject[256] = "", method_str[32] = "";
+    char omp_str[16] = "", pt_str[16] = "", mpi_str[16] = "";
+    mg_get_var(qs, qsl, "class",           class_name,  sizeof(class_name));
+    mg_get_var(qs, qsl, "subject",         ref_subject, sizeof(ref_subject));
+    mg_get_var(qs, qsl, "method",          method_str,  sizeof(method_str));
+    mg_get_var(qs, qsl, "openmp_threads",  omp_str,     sizeof(omp_str));
+    mg_get_var(qs, qsl, "pthread_threads", pt_str,      sizeof(pt_str));
+    mg_get_var(qs, qsl, "mpi_processes",   mpi_str,     sizeof(mpi_str));
+
+    if (!class_name[0] || !ref_subject[0] || !method_str[0])
+        return SendErrorResponse(conn, 400,
+            "Missing required parameters: class, subject, method");
+
+    int req_threads = get_thread_count(ri);
+    int req_omp = atoi(omp_str); if (req_omp <= 0 || req_omp > 256) req_omp = (req_threads > 0) ? req_threads : omp_get_max_threads();
+    int req_pt  = atoi(pt_str);  if (req_pt  <= 0 || req_pt  > 256) req_pt  = (req_threads > 0) ? req_threads : g_num_threads;
+    int req_mpi = atoi(mpi_str); if (req_mpi <= 0) req_mpi = 2;
+
+    /* parallel methods use pool connections; serial uses the mutex path */
+    int use_pool = (strcmp(method_str, "serial") != 0) ? 1 : 0;
+
+    char **subjects = NULL;
+    int subject_count = db_get_class_subject_names(global_db, class_name, &subjects);
+    if (subject_count <= 0) {
+        if (subjects) free(subjects);
+        return SendErrorResponse(conn, 404, "No subjects found for this class");
+    }
+
+    int fetch_count = 0;
+    for (int i = 0; i < subject_count; i++)
+        if (strcmp(subjects[i], ref_subject) != 0) fetch_count++;
+
+    if (fetch_count == 0) {
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 404, "No other subjects found to compare against");
+    }
+
+    struct timespec timeout;
+    clock_gettime(CLOCK_REALTIME, &timeout);
+    timeout.tv_sec += 60;
+    if (pthread_mutex_timedlock(&calc_lock, &timeout) == ETIMEDOUT) {
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
+    }
+
+    int prev    = omp_get_max_threads();
+    int saved_g = g_num_threads;
+
+    fetch_task_t *tasks    = (fetch_task_t *)calloc((size_t)fetch_count, sizeof(fetch_task_t));
+    pthread_t    *fthreads = (pthread_t    *)malloc(sizeof(pthread_t) * (size_t)fetch_count);
+    if (!tasks || !fthreads) {
+        free(tasks); free(fthreads);
+        omp_set_num_threads(prev); g_num_threads = saved_g;
+        pthread_mutex_unlock(&calc_lock);
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 500, "Memory allocation failed");
+    }
+
+    int fi = 0;
+    for (int i = 0; i < subject_count; i++) {
+        if (strcmp(subjects[i], ref_subject) == 0) continue;
+        tasks[fi].ref_subject = ref_subject;
+        tasks[fi].class_name  = class_name;
+        tasks[fi].subject     = subjects[i];
+        tasks[fi].use_pool    = use_pool;
+        fi++;
+    }
+
+    /* ── Phase 1: fetch all subjects concurrently ─────────────────────── */
+    double t_fetch_start = omp_get_wtime();
+    for (int i = 0; i < fetch_count; i++)
+        pthread_create(&fthreads[i], NULL, fetch_subject_worker, &tasks[i]);
+    for (int i = 0; i < fetch_count; i++)
+        pthread_join(fthreads[i], NULL);
+    double fetch_phase_ms = (omp_get_wtime() - t_fetch_start) * 1000.0;
+    free(fthreads);
+
+    /* ── Phase 2: run selected method on each subject ─────────────────── */
+    int    is_mpi    = strcmp(method_str, "mpi")      == 0;
+    int    is_par    = strcmp(method_str, "parallel")  == 0;
+    int    is_pt     = strcmp(method_str, "pthread")   == 0;
+
+    if (is_par)  { omp_set_num_threads(req_omp); }
+    if (is_pt)   { g_num_threads = req_pt; }
+    if (!is_par && !is_pt && !is_mpi) { omp_set_num_threads(1); g_num_threads = 1; }
+
+    double total_calc_ms = 0.0;
+    int    threads_used  = is_par ? req_omp : (is_pt ? req_pt : (is_mpi ? req_mpi : 1));
+    int    processed     = 0;
+
+    size_t subj_cap = 65536, subj_len = 0;
+    char  *subj_buf = (char *)malloc(subj_cap);
+    if (!subj_buf) {
+        for (int i = 0; i < fetch_count; i++) if (tasks[i].pairs) free(tasks[i].pairs);
+        free(tasks);
+        omp_set_num_threads(prev); g_num_threads = saved_g;
+        pthread_mutex_unlock(&calc_lock);
+        for (int i = 0; i < subject_count; i++) free(subjects[i]);
+        free(subjects);
+        return SendErrorResponse(conn, 500, "Memory allocation failed");
+    }
+    subj_buf[0] = '\0';
+
+    double t_calc_start = omp_get_wtime();
+
+    for (int i = 0; i < fetch_count; i++) {
+        if (!tasks[i].pairs || tasks[i].n < 2) {
+            if (tasks[i].pairs) free(tasks[i].pairs);
+            continue;
+        }
+        score_pair_t *pairs = tasks[i].pairs;
+        int           n     = tasks[i].n;
+        corr_result_t res;
+
+        if (is_par) {
+            res = run_corr_parallel(pairs, n);
+        } else if (is_pt) {
+            res = run_corr_pthread(pairs, n);
+        } else if (is_mpi) {
+#ifdef ENABLE_MPI
+            int cmd = MPI_CMD_CALC_CORR;
+            MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            res = run_corr_mpi(pairs, n, req_mpi);
+            threads_used = res.threads_used;
+#else
+            omp_set_num_threads(1);
+            res = run_corr_serial(pairs, n);
+#endif
+        } else {
+            res = run_corr_serial(pairs, n);
+        }
+
+        total_calc_ms += res.elapsed_ms;
+        char entry[512];
+        snprintf(entry, sizeof(entry),
+            "%s{\"subject\":\"%s\",\"n_pairs\":%d,\"r\":%.6f,"
+            "\"elapsed_ms\":%.4f,\"threads_used\":%d,"
+            "\"slope\":%.6f,\"intercept\":%.6f}",
+            (processed > 0 ? "," : ""),
+            tasks[i].subject, n,
+            res.correlation_coefficient, res.elapsed_ms, res.threads_used,
+            res.best_fit_slope, res.best_fit_intercept);
+
+        cc_buf_append(&subj_buf, &subj_len, &subj_cap, entry);
+        free(pairs); tasks[i].pairs = NULL;
+        processed++;
+    }
+
+    double calc_phase_ms = (omp_get_wtime() - t_calc_start) * 1000.0;
+    free(tasks);
+    omp_set_num_threads(prev); g_num_threads = saved_g;
+    pthread_mutex_unlock(&calc_lock);
+    for (int i = 0; i < subject_count; i++) free(subjects[i]);
+    free(subjects);
+
+    if (processed == 0) {
+        free(subj_buf);
+        return SendErrorResponse(conn, 404, "No paired scores found");
+    }
+
+    size_t data_sz = subj_len + 512;
+    char  *data    = (char *)malloc(data_sz);
+    if (!data) { free(subj_buf); return SendErrorResponse(conn, 500, "Memory allocation failed"); }
+
+    snprintf(data, data_sz,
+        "{"
+        "\"method\":\"%s\","
+        "\"reference_subject\":\"%s\","
+        "\"class_name\":\"%s\","
+        "\"threads\":%d,"
+        "\"fetch_ms\":%.4f,"
+        "\"calc_ms\":%.4f,"
+        "\"subjects\":[%s]"
+        "}",
+        method_str, ref_subject, class_name, threads_used,
+        fetch_phase_ms, calc_phase_ms, subj_buf);
+
+    free(subj_buf);
+    int ret2 = SendJSONResponse(conn, "success",
+        "One vs All single-method correlation completed", data);
+    free(data);
+    return ret2;
 }
