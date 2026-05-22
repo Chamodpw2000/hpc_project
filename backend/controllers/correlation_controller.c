@@ -66,12 +66,16 @@ static int get_thread_count(const struct mg_request_info *ri) {
     return (t > 0 && t <= 256) ? t : 0;
 }
 
-/* ── Shared: parse params + fetch pairs ── */
+/* ── Shared: parse params + fetch pairs ──
+ * n_threads == 1  → sequential db_get_paired_scores
+ * n_threads >= 2  → parallel   db_get_paired_scores_parallel
+ */
 static score_pair_t* prepare_pairs(struct mg_connection *conn,
                                     int *out_n, double *out_fetch_ms,
                                     int *out_total_students, int *out_excluded,
                                     char *sub1, char *cls1,
-                                    char *sub2, char *cls2)
+                                    char *sub2, char *cls2,
+                                    int n_threads)
 {
     const struct mg_request_info *ri = mg_get_request_info(conn);
     const char *qs  = ri->query_string ? ri->query_string : "";
@@ -88,8 +92,14 @@ static score_pair_t* prepare_pairs(struct mg_connection *conn,
 
     score_pair_t *pairs = NULL;
     int n = 0;
-    db_get_paired_scores(global_db, sub1, cls1, sub2, cls2,
-                         &pairs, &n, out_total_students, out_excluded, out_fetch_ms);
+    if (n_threads >= 2) {
+        db_get_paired_scores_parallel(global_db, sub1, cls1, sub2, cls2,
+                                      &pairs, &n, out_total_students, out_excluded,
+                                      out_fetch_ms, n_threads);
+    } else {
+        db_get_paired_scores(global_db, sub1, cls1, sub2, cls2,
+                             &pairs, &n, out_total_students, out_excluded, out_fetch_ms);
+    }
 
     if (!pairs || n < 2) {
         if (pairs) free(pairs);
@@ -120,7 +130,7 @@ int CorrSerialHandler(struct mg_connection *conn, void *cbdata)
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
-                                        sub1, cls1, sub2, cls2);
+                                        sub1, cls1, sub2, cls2, 1);
     if (!pairs) return 1;
 
     struct timespec timeout;
@@ -165,7 +175,8 @@ int CorrParallelHandler(struct mg_connection *conn, void *cbdata)
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
-                                        sub1, cls1, sub2, cls2);
+                                        sub1, cls1, sub2, cls2,
+                                        req_threads > 0 ? req_threads : omp_get_max_threads());
     if (!pairs) return 1;
 
     struct timespec timeout;
@@ -210,7 +221,8 @@ int CorrPthreadHandler(struct mg_connection *conn, void *cbdata)
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
-                                        sub1, cls1, sub2, cls2);
+                                        sub1, cls1, sub2, cls2,
+                                        req_threads > 0 ? req_threads : g_num_threads);
     if (!pairs) return 1;
 
     struct timespec timeout;
@@ -251,10 +263,12 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
     char sub1[256], cls1[256], sub2[256], cls2[256];
     double fetch_ms = 0.0;
     int n = 0, total_students = 0, excluded = 0;
+    int req_threads = get_thread_count(ri);
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
-                                        sub1, cls1, sub2, cls2);
+                                        sub1, cls1, sub2, cls2,
+                                        req_threads > 0 ? req_threads : omp_get_max_threads());
     if (!pairs) return 1;
 
     struct timespec timeout;
@@ -264,8 +278,6 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
         free(pairs);
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
-
-    int req_threads = get_thread_count(ri);
 
     /* Run serial first (force single thread) */
     int prev = omp_get_max_threads();
@@ -412,9 +424,17 @@ int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
     double fetch_ms = 0.0;
     int n = 0, total_students = 0, excluded = 0;
 
+    /* Parse optional process count before fetch so we can pass it to prepare_pairs */
+    const char *mpi_qs  = ri->query_string ? ri->query_string : "";
+    size_t      mpi_qsl = strlen(mpi_qs);
+    char mpi_str[16] = "";
+    mg_get_var(mpi_qs, mpi_qsl, "mpi_processes", mpi_str, sizeof(mpi_str));
+    int req_mpi = atoi(mpi_str);
+
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
-                                        sub1, cls1, sub2, cls2);
+                                        sub1, cls1, sub2, cls2,
+                                        req_mpi > 0 ? req_mpi : 2);
     if (!pairs) return 1;
 
     struct timespec timeout;
@@ -424,13 +444,6 @@ int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
         free(pairs);
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
-
-    /* Parse optional process count */
-    const char *mpi_qs  = ri->query_string ? ri->query_string : "";
-    size_t      mpi_qsl = strlen(mpi_qs);
-    char mpi_str[16] = "";
-    mg_get_var(mpi_qs, mpi_qsl, "mpi_processes", mpi_str, sizeof(mpi_str));
-    int req_mpi = atoi(mpi_str);
 
     /* Signal workers to participate in correlation calculation */
     int cmd = MPI_CMD_CALC_CORR;

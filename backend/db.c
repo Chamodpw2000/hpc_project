@@ -1987,3 +1987,324 @@ int db_get_paired_scores(db_connection_t *db,
     return (*out_count > 0) ? 1 : 0;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * PARALLEL FETCH FUNCTIONS
+ * Each uses mongoc_client_pool_pop/push so threads get independent connections.
+ * The single-client DB_LOCK path is only used for the quick student-ID lookup.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Worker: fetch one skip/limit chunk of scores ── */
+typedef struct {
+    mongoc_client_pool_t *pool;
+    char                  db_name[256];
+    char                 *filter_json;   /* canonical JSON, shared read-only  */
+    int64_t               skip;
+    int64_t               limit;
+    double               *buf;           /* pre-allocated by caller           */
+    int                   count;         /* result: how many docs written      */
+} score_pfetch_task_t;
+
+static void *score_pfetch_worker(void *arg)
+{
+    score_pfetch_task_t *t = (score_pfetch_task_t *)arg;
+
+    mongoc_client_t     *client = mongoc_client_pool_pop(t->pool);
+    mongoc_collection_t *col    = mongoc_client_get_collection(client, t->db_name, "scores");
+
+    bson_error_t err;
+    bson_t *filter = bson_new_from_json((const uint8_t *)t->filter_json, -1, &err);
+    if (!filter) {
+        mongoc_collection_destroy(col);
+        mongoc_client_pool_push(t->pool, client);
+        t->count = 0;
+        return NULL;
+    }
+
+    bson_t *opts = BCON_NEW(
+        "projection", "{", "score", BCON_INT32(1), "_id", BCON_INT32(0), "}",
+        "skip",      BCON_INT64(t->skip),
+        "limit",     BCON_INT64(t->limit),
+        "batchSize", BCON_INT32(5000));
+
+    mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(col, filter, opts, NULL);
+    bson_destroy(filter);
+    bson_destroy(opts);
+
+    const bson_t *doc;
+    int idx = 0;
+    while (mongoc_cursor_next(cursor, &doc) && idx < (int)t->limit) {
+        bson_iter_t iter;
+        if (bson_iter_init_find(&iter, doc, "score")) {
+            double v = 0.0;
+            if      (BSON_ITER_HOLDS_DOUBLE(&iter)) v = bson_iter_double(&iter);
+            else if (BSON_ITER_HOLDS_INT32 (&iter)) v = (double)bson_iter_int32(&iter);
+            else if (BSON_ITER_HOLDS_INT64 (&iter)) v = (double)bson_iter_int64(&iter);
+            else continue;
+            t->buf[idx++] = v;
+        }
+    }
+    mongoc_cursor_destroy(cursor);
+    mongoc_collection_destroy(col);
+    mongoc_client_pool_push(t->pool, client);
+    t->count = idx;
+    return NULL;
+}
+
+double* db_get_scores_array_parallel(db_connection_t *db,
+                                      const char *class_filter,
+                                      const char *subject_filter,
+                                      int *out_count,
+                                      int n_threads)
+{
+    *out_count = 0;
+    if (!db || !db->pool || n_threads <= 1)
+        return db_get_scores_array(db, class_filter, subject_filter, out_count);
+
+    /* ── Phase 1 (serial): resolve student IDs + build filter + count ── */
+    DB_LOCK();
+
+    char **class_student_ids = NULL;
+    size_t class_student_ids_cap = 0;
+    int    class_student_ids_n   = 0;
+
+    if (class_filter && class_filter[0]) {
+        class_student_ids_n = fetch_class_student_ids(
+            db->students_collection, class_filter,
+            &class_student_ids, &class_student_ids_cap);
+        if (class_student_ids_n <= 0) {
+            if (class_student_ids) free(class_student_ids);
+            DB_UNLOCK();
+            return NULL;
+        }
+    }
+
+    bson_t *filter = bson_new();
+    if (class_filter && class_filter[0] && class_student_ids_n > 0) {
+        bson_t in_cond, sid_arr;
+        bson_append_document_begin(filter, "student_id", -1, &in_cond);
+        bson_append_array_begin(&in_cond, "$in", -1, &sid_arr);
+        for (int i = 0; i < class_student_ids_n; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", i);
+            BSON_APPEND_UTF8(&sid_arr, key, class_student_ids[i]);
+        }
+        bson_append_array_end(&in_cond, &sid_arr);
+        bson_append_document_end(filter, &in_cond);
+    }
+    if (subject_filter && subject_filter[0])
+        BSON_APPEND_UTF8(filter, "subject", subject_filter);
+
+    if (class_student_ids) {
+        for (int i = 0; i < class_student_ids_n; i++) free(class_student_ids[i]);
+        free(class_student_ids);
+    }
+
+    bson_error_t count_err;
+    int64_t total = mongoc_collection_count_documents(
+        db->scores_collection, filter, NULL, NULL, NULL, &count_err);
+
+    DB_UNLOCK();
+
+    if (total <= 0) { bson_destroy(filter); return NULL; }
+
+    /* Serialize filter to JSON — each thread deserialises its own bson_t copy */
+    char *filter_json = bson_as_canonical_extended_json(filter, NULL);
+    bson_destroy(filter);
+    if (!filter_json)
+        return db_get_scores_array(db, class_filter, subject_filter, out_count);
+
+    /* ── Phase 2 (parallel): T threads each fetch a skip/limit chunk ── */
+    int T = (n_threads > (int)total) ? (int)total : n_threads;
+    if (T < 1) T = 1;
+    int64_t chunk = total / T;
+    int64_t rem   = total % T;
+
+    double              **bufs    = (double **)malloc(sizeof(double *) * (size_t)T);
+    score_pfetch_task_t  *tasks   = (score_pfetch_task_t *)calloc((size_t)T, sizeof(score_pfetch_task_t));
+    pthread_t            *threads = (pthread_t *)malloc(sizeof(pthread_t) * (size_t)T);
+
+    if (!bufs || !tasks || !threads) {
+        free(bufs); free(tasks); free(threads);
+        bson_free(filter_json);
+        return db_get_scores_array(db, class_filter, subject_filter, out_count);
+    }
+
+    int64_t offset = 0;
+    for (int i = 0; i < T; i++) {
+        int64_t my_limit = chunk + (i < (int)rem ? 1 : 0);
+        bufs[i] = (double *)malloc(sizeof(double) * (size_t)(my_limit + 64));
+        strncpy(tasks[i].db_name, db->db_name, 255);
+        tasks[i].db_name[255] = '\0';
+        tasks[i].pool        = db->pool;
+        tasks[i].filter_json = filter_json;
+        tasks[i].skip        = offset;
+        tasks[i].limit       = my_limit;
+        tasks[i].buf         = bufs[i];
+        tasks[i].count       = 0;
+        offset += my_limit;
+        pthread_create(&threads[i], NULL, score_pfetch_worker, &tasks[i]);
+    }
+    for (int i = 0; i < T; i++) pthread_join(threads[i], NULL);
+
+    /* ── Phase 3 (serial): merge chunks into one array ── */
+    double *scores = (double *)malloc(sizeof(double) * (size_t)(total + 64));
+    int fetched = 0;
+    if (scores) {
+        for (int i = 0; i < T; i++) {
+            if (bufs[i] && tasks[i].count > 0) {
+                memcpy(scores + fetched, bufs[i],
+                       sizeof(double) * (size_t)tasks[i].count);
+                fetched += tasks[i].count;
+            }
+        }
+    }
+
+    for (int i = 0; i < T; i++) free(bufs[i]);
+    free(bufs); free(tasks); free(threads);
+    bson_free(filter_json);
+
+    if (!scores)
+        return db_get_scores_array(db, class_filter, subject_filter, out_count);
+
+    *out_count = fetched;
+    printf("Parallel fetch (%d threads): %d scores (expected %" PRId64 ")\n",
+           T, fetched, total);
+    return scores;
+}
+
+/* ── Worker: fetch all scores for one subject using a pool connection ── */
+typedef struct {
+    mongoc_client_pool_t *pool;
+    char                  db_name[256];
+    const char           *subject;
+    char               **class_ids;
+    int                  n_class_ids;
+    subj_score_t        *result;     /* output: allocated inside worker */
+    int                  n;          /* output: count                   */
+} pair_pfetch_task_t;
+
+static void *pair_pfetch_worker(void *arg)
+{
+    pair_pfetch_task_t  *t      = (pair_pfetch_task_t *)arg;
+    mongoc_client_t     *client = mongoc_client_pool_pop(t->pool);
+    mongoc_collection_t *col    = mongoc_client_get_collection(client, t->db_name, "scores");
+    t->n = fetch_subject_scores(col, t->subject, t->class_ids, t->n_class_ids, &t->result);
+    mongoc_collection_destroy(col);
+    mongoc_client_pool_push(t->pool, client);
+    return NULL;
+}
+
+int db_get_paired_scores_parallel(db_connection_t *db,
+                                   const char *subject1, const char *class1,
+                                   const char *subject2, const char *class2,
+                                   score_pair_t **out_pairs, int *out_count,
+                                   int *out_total_students, int *out_excluded,
+                                   double *out_fetch_ms,
+                                   int n_threads)
+{
+    *out_pairs = NULL; *out_count = 0;
+    if (out_total_students) *out_total_students = 0;
+    if (out_excluded)       *out_excluded       = 0;
+    if (out_fetch_ms)       *out_fetch_ms        = 0.0;
+
+    if (!db || !db->pool || n_threads < 2)
+        return db_get_paired_scores(db, subject1, class1, subject2, class2,
+                                    out_pairs, out_count, out_total_students,
+                                    out_excluded, out_fetch_ms);
+
+    if (!subject1 || !class1 || !subject2 || !class2) return 0;
+
+    double t_start    = omp_get_wtime();
+    int    same_class = (strcmp(class1, class2) == 0);
+
+    char **ids1 = NULL; size_t cap1 = 0; int n1 = 0;
+    char **ids2 = NULL; size_t cap2 = 0; int n2 = 0;
+
+    /* ── Phase 1 (serial): resolve student IDs — fast, small result ── */
+    DB_LOCK();
+    n1 = fetch_class_student_ids(db->students_collection, class1, &ids1, &cap1);
+    if (n1 > 0 && !same_class)
+        n2 = fetch_class_student_ids(db->students_collection, class2, &ids2, &cap2);
+    DB_UNLOCK();
+
+    if (n1 <= 0) {
+        if (ids1) { for (int i = 0; i < n1; i++) free(ids1[i]); free(ids1); }
+        return 0;
+    }
+    if (same_class) { ids2 = ids1; n2 = n1; }
+
+    /* ── Phase 2 (parallel): fetch both subjects' scores simultaneously ── */
+    pair_pfetch_task_t tasks[2];
+    pthread_t          pth[2];
+    memset(tasks, 0, sizeof(tasks));
+
+    strncpy(tasks[0].db_name, db->db_name, 255); tasks[0].db_name[255] = '\0';
+    tasks[0].pool        = db->pool;
+    tasks[0].subject     = subject1;
+    tasks[0].class_ids   = ids1;
+    tasks[0].n_class_ids = n1;
+
+    strncpy(tasks[1].db_name, db->db_name, 255); tasks[1].db_name[255] = '\0';
+    tasks[1].pool        = db->pool;
+    tasks[1].subject     = subject2;
+    tasks[1].class_ids   = ids2;
+    tasks[1].n_class_ids = n2;
+
+    pthread_create(&pth[0], NULL, pair_pfetch_worker, &tasks[0]);
+    pthread_create(&pth[1], NULL, pair_pfetch_worker, &tasks[1]);
+    pthread_join(pth[0], NULL);
+    pthread_join(pth[1], NULL);
+
+    subj_score_t *sc1 = tasks[0].result; int sc1_n = tasks[0].n;
+    subj_score_t *sc2 = tasks[1].result; int sc2_n = tasks[1].n;
+
+    if (out_fetch_ms) *out_fetch_ms = (omp_get_wtime() - t_start) * 1000.0;
+
+    /* ── Phase 3 (serial): sort + merge-join on student_id ── */
+    if (sc1_n > 0 && sc2_n > 0) {
+        qsort(sc1, (size_t)sc1_n, sizeof(subj_score_t), cmp_subj_score);
+        qsort(sc2, (size_t)sc2_n, sizeof(subj_score_t), cmp_subj_score);
+
+        int min_n  = sc1_n < sc2_n ? sc1_n : sc2_n;
+        score_pair_t *pairs = (score_pair_t *)malloc(sizeof(score_pair_t) * (size_t)(min_n + 1));
+        if (pairs) {
+            int i = 0, j = 0, k = 0;
+            while (i < sc1_n && j < sc2_n) {
+                int cmp = strcmp(sc1[i].student_id, sc2[j].student_id);
+                if      (cmp == 0) { pairs[k].x = sc1[i].score; pairs[k].y = sc2[j].score; k++; i++; j++; }
+                else if (cmp <  0) { i++; }
+                else               { j++; }
+            }
+            *out_pairs = pairs;
+            *out_count = k;
+        }
+    }
+
+    int total_students = n1;
+    if (!same_class && n1 > 0 && n2 > 0) {
+        for (int i = 0; i < n2; i++) {
+            int found = 0;
+            for (int j = 0; j < n1; j++)
+                if (strcmp(ids2[i], ids1[j]) == 0) { found = 1; break; }
+            if (!found) total_students++;
+        }
+    } else if (!same_class) {
+        total_students = n1 + n2;
+    }
+    if (out_total_students) *out_total_students = total_students;
+    if (out_excluded)       *out_excluded       = total_students - *out_count;
+
+    printf("[corr-parallel] '%s'(%s) vs '%s'(%s): %d pairs\n",
+           subject1, class1, subject2, class2, *out_count);
+
+    for (int i = 0; i < n1; i++) free(ids1[i]);
+    free(ids1);
+    if (!same_class) {
+        for (int i = 0; i < n2; i++) free(ids2[i]);
+        free(ids2);
+    }
+    free(sc1);
+    free(sc2);
+
+    return (*out_count > 0) ? 1 : 0;
+}
