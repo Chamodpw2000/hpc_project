@@ -280,14 +280,13 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      // All four requests start simultaneously; DB fetches run in parallel on the
-      // server (before calc_lock), calculations then queue at the lock.
-      const [sJson, parJson, ptJson, mpiJson] = await Promise.all([
-        fetch(`${API}/api/calculate/serial`).then(r => r.json()),
-        fetch(`${API}/api/calculate/parallel?threads=${compareThreads}`).then(r => r.json()),
-        fetch(`${API}/api/calculate/pthread?threads=${compareThreads}`).then(r => r.json()),
-        fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null),
-      ]);
+      // Run sequentially so each request acquires calc_lock in turn without
+      // racing — parallel Promise.all causes all timers to start at the same
+      // moment, so if one holds the lock for a while the others time out (503).
+      const sJson   = await fetch(`${API}/api/calculate/serial`).then(r => r.json());
+      const parJson = await fetch(`${API}/api/calculate/parallel?threads=${compareThreads}`).then(r => r.json());
+      const ptJson  = await fetch(`${API}/api/calculate/pthread?threads=${compareThreads}`).then(r => r.json());
+      const mpiJson = await fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null);
 
       if (!sJson?.data || !parJson?.data || !ptJson?.data)
         throw new Error(sJson?.message ?? parJson?.message ?? ptJson?.message ?? "Request failed");

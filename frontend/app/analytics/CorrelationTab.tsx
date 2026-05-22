@@ -513,12 +513,12 @@ export default function CorrelationTab() {
       const base = `${API}/api/calculate/correlation`;
       const p    = buildParams();
 
-      const [sJson, parJson, ptJson, mpiJson] = await Promise.all([
-        fetch(`${base}/serial?${p}`)                              .then(r => r.json()),
-        fetch(`${base}/parallel?${p}&threads=${compareThreads}`)  .then(r => r.json()),
-        fetch(`${base}/pthread?${p}&threads=${compareThreads}`)   .then(r => r.json()),
-        fetch(`${base}/mpi?${p}&mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null),
-      ]);
+      // Run sequentially — all handlers compete for the same calc_lock mutex, so
+      // concurrent requests race and the slower ones hit their 30 s timeout (503).
+      const sJson   = await fetch(`${base}/serial?${p}`).then(r => r.json());
+      const parJson = await fetch(`${base}/parallel?${p}&threads=${compareThreads}`).then(r => r.json());
+      const ptJson  = await fetch(`${base}/pthread?${p}&threads=${compareThreads}`).then(r => r.json());
+      const mpiJson = await fetch(`${base}/mpi?${p}&mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null);
 
       if (!sJson?.data || !parJson?.data || !ptJson?.data)
         throw new Error(sJson?.message ?? parJson?.message ?? ptJson?.message ?? "Request failed");
