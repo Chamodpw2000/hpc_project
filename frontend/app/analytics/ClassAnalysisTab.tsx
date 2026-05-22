@@ -60,7 +60,10 @@ export default function ClassAnalysisTab() {
   
   const [loading, setLoading] = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
+  const [openmpThreads, setOpenmpThreads] = useState(4);
+  const [pthreadThreads, setPthreadThreads] = useState(4);
+  const [compareThreads, setCompareThreads] = useState(4);
+
   // Store results mapped by subject name
   const [results, setResults] = useState<Record<string, CalcResult | CompareData>>({});
 
@@ -104,7 +107,7 @@ export default function ClassAnalysisTab() {
 
   const runCalculation = async (mode: "serial" | "parallel" | "pthread" | "mpi" | "compare") => {
     if (!selectedClass || subjects.length === 0) return;
-    
+
     setLoading(mode);
     setError(null);
     setResults({}); // clear old results
@@ -112,34 +115,37 @@ export default function ClassAnalysisTab() {
 
     try {
       if (mode === "compare") {
-        // Option A: Single backend request for Compare All
-        const res = await fetch(`/api/calculate/class/compare?class=${encodeURIComponent(selectedClass)}`);
+        const url = `/api/calculate/class/compare?class=${encodeURIComponent(selectedClass)}&threads=${compareThreads}`;
+        const res = await fetch(url);
         const json = await res.json();
-        
+
         if (!res.ok || json.error) {
           throw new Error(json.message || "Failed to compare all subjects");
         }
-        
+
         const newResults: Record<string, CompareData> = {};
         json.data.subjects.forEach((item: any) => {
           newResults[item.subject] = {
             serial: item.serial,
             parallel: item.parallel,
             pthread: item.pthread,
-            mpi: item.mpi, // Can be null if MPI is down, handled by UI
+            mpi: item.mpi,
             comparison: item.comparison
           };
-          // Preserve any per-subject MPI errors if needed by the UI
           if (item.mpi_error) {
             (newResults[item.subject] as any).mpi_error = item.mpi_error;
           }
         });
-        
+
         setResults(newResults);
       } else {
-        // Individual sequential calls for specific modes
+        const threadParam = mode === "parallel" ? openmpThreads
+          : mode === "pthread" ? pthreadThreads
+          : null;
+
         const promises = subjects.map(async (subject) => {
-          const url = `${API}/api/calculate/${mode}?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}`;
+          let url = `${API}/api/calculate/${mode}?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}`;
+          if (threadParam !== null) url += `&threads=${threadParam}`;
           const res = await fetch(url);
           const json = await res.json();
           if (!res.ok) throw new Error(json.message || `Failed for ${subject}`);
@@ -147,12 +153,12 @@ export default function ClassAnalysisTab() {
         });
 
         const completed = await Promise.all(promises);
-        
+
         const newResults: Record<string, CalcResult | CompareData> = {};
         completed.forEach((item) => {
           newResults[item.subject] = item.data;
         });
-        
+
         setResults(newResults);
       }
     } catch (e: any) {
@@ -204,42 +210,91 @@ export default function ClassAnalysisTab() {
           2. Calculate Subject Statistics
         </h2>
 
-        <div className="flex flex-wrap gap-4">
-          <button
-            onClick={() => runCalculation("serial")}
-            disabled={!canRun}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
-          >
-            {loading === "serial" ? "Running..." : "Run Serial"}
-          </button>
-          <button
-            onClick={() => runCalculation("parallel")}
-            disabled={!canRun}
-            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
-          >
-            {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
-          </button>
-          <button
-            onClick={() => runCalculation("pthread")}
-            disabled={!canRun}
-            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
-          >
-            {loading === "pthread" ? "Running..." : "Run Pthreads"}
-          </button>
-          <button
-            onClick={() => runCalculation("mpi")}
-            disabled={!canRun}
-            className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
-          >
-            {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
-          </button>
-          <button
-            onClick={() => runCalculation("compare")}
-            disabled={!canRun}
-            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
-          >
-            {loading === "compare" ? "Running..." : "Compare All"}
-          </button>
+        <div className="space-y-3">
+          {/* Serial & MPI — no thread input */}
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => runCalculation("serial")}
+              disabled={!canRun}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+            >
+              {loading === "serial" ? "Running..." : "Run Serial"}
+            </button>
+            <button
+              onClick={() => runCalculation("mpi")}
+              disabled={!canRun}
+              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+            >
+              {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+            </button>
+          </div>
+
+          {/* Parallel methods with thread count inputs */}
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={openmpThreads}
+                onChange={e => setOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={() => runCalculation("parallel")}
+              disabled={!canRun}
+              className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+            >
+              {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
+            </button>
+
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={pthreadThreads}
+                onChange={e => setPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={() => runCalculation("pthread")}
+              disabled={!canRun}
+              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+            >
+              {loading === "pthread" ? "Running..." : "Run Pthreads"}
+            </button>
+          </div>
+
+          {/* Compare All with thread count */}
+          <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-700/50">
+            <div>
+              <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
+              <input
+                type="number"
+                min={1}
+                max={256}
+                value={compareThreads}
+                onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!canRun}
+                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={() => runCalculation("compare")}
+              disabled={!canRun}
+              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
+            >
+              {loading === "compare" ? "Running..." : "Compare All"}
+            </button>
+            <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
+          </div>
         </div>
 
         {loading && (

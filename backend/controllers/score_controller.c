@@ -20,6 +20,7 @@
 #endif
 
 extern db_connection_t *global_db;
+extern int g_num_threads;
 
 static int buf_append(char **buf, size_t *len, size_t *cap, const char *src)
 {
@@ -140,6 +141,14 @@ int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
 }
 
 /* ── Helper to extract query parameters ── */
+static int get_thread_count(const struct mg_request_info *ri) {
+    if (!ri->query_string) return 0;
+    char buf[16] = "";
+    mg_get_var(ri->query_string, strlen(ri->query_string), "threads", buf, sizeof(buf));
+    int t = atoi(buf);
+    return (t > 0 && t <= 256) ? t : 0;
+}
+
 static void get_filter_params(const struct mg_request_info *ri, char *cls, size_t clen, char *sub, size_t slen) {
     cls[0] = '\0';
     sub[0] = '\0';
@@ -211,6 +220,7 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
     get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
     const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
     const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+    int req_threads = get_thread_count(ri);
 
     int     count  = 0;
 
@@ -231,8 +241,11 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    int prev = omp_get_max_threads();
+    if (req_threads > 0) omp_set_num_threads(req_threads);
     calc_result_t r = run_parallel(scores, count);
-    
+    omp_set_num_threads(prev);
+
     pthread_mutex_unlock(&calc_lock);
     free(scores);
 
@@ -256,6 +269,7 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata)
     get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
     const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
     const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+    int req_threads = get_thread_count(ri);
 
     int     count  = 0;
 
@@ -276,7 +290,10 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    int saved_threads = g_num_threads;
+    if (req_threads > 0) g_num_threads = req_threads;
     calc_result_t r = run_pthread(scores, count);
+    g_num_threads = saved_threads;
 
     pthread_mutex_unlock(&calc_lock);
     free(scores);
@@ -325,13 +342,22 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    int req_threads = get_thread_count(ri);
     int prev = omp_get_max_threads();
+    int saved_threads = g_num_threads;
     omp_set_num_threads(1);
     calc_result_t serial = run_serial(scores, count);
-    omp_set_num_threads(prev);
 
+    if (req_threads > 0) {
+        omp_set_num_threads(req_threads);
+        g_num_threads = req_threads;
+    } else {
+        omp_set_num_threads(prev);
+    }
     calc_result_t parallel = run_parallel(scores, count);
     calc_result_t pt_res   = run_pthread(scores, count);
+    omp_set_num_threads(prev);
+    g_num_threads = saved_threads;
 
 #ifdef ENABLE_MPI
     int cmd = MPI_CMD_CALC_SCORES;
@@ -421,6 +447,7 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     if (class_filter[0] == '\0') {
         return SendErrorResponse(conn, 400, "Missing required query parameter: class");
     }
+    int req_threads = get_thread_count(ri);
 
     char **subjects = NULL;
     int subject_count = db_get_class_subject_names(global_db, class_filter, &subjects);
@@ -456,6 +483,7 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     }
 
     int prev_threads = omp_get_max_threads();
+    int saved_g_threads = g_num_threads;
 
     for (int s_idx = 0; s_idx < subject_count; s_idx++) {
         const char *subject_name = subjects[s_idx];
@@ -471,8 +499,13 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
 
         omp_set_num_threads(1);
         calc_result_t serial = run_serial(scores, count);
-        omp_set_num_threads(prev_threads);
 
+        if (req_threads > 0) {
+            omp_set_num_threads(req_threads);
+            g_num_threads = req_threads;
+        } else {
+            omp_set_num_threads(prev_threads);
+        }
         calc_result_t parallel = run_parallel(scores, count);
         calc_result_t pt_res   = run_pthread(scores, count);
 
@@ -547,6 +580,8 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
         buf_append(&out_buf, &out_len, &out_cap, subj_json);
     }
 
+    omp_set_num_threads(prev_threads);
+    g_num_threads = saved_g_threads;
     pthread_mutex_unlock(&calc_lock);
     buf_append(&out_buf, &out_len, &out_cap, "\n  ]");
 

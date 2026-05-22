@@ -34,6 +34,7 @@
 #endif
 
 extern db_connection_t *global_db;
+extern int g_num_threads;
 
 /* ── Parse a single query parameter (URL-decoded by mg_get_var) ── */
 static int get_param(const char *qs, size_t qs_len,
@@ -41,6 +42,14 @@ static int get_param(const char *qs, size_t qs_len,
 {
     int ret = mg_get_var(qs, qs_len, name, out, out_sz);
     return (ret > 0) ? 1 : 0;
+}
+
+static int get_thread_count(const struct mg_request_info *ri) {
+    if (!ri->query_string) return 0;
+    char buf[16] = "";
+    mg_get_var(ri->query_string, strlen(ri->query_string), "threads", buf, sizeof(buf));
+    int t = atoi(buf);
+    return (t > 0 && t <= 256) ? t : 0;
 }
 
 /* ── Shared: parse params + fetch pairs ── */
@@ -138,6 +147,7 @@ int CorrParallelHandler(struct mg_connection *conn, void *cbdata)
     char sub1[256], cls1[256], sub2[256], cls2[256];
     double fetch_ms = 0.0;
     int n = 0, total_students = 0, excluded = 0;
+    int req_threads = get_thread_count(ri);
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
@@ -152,8 +162,11 @@ int CorrParallelHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int prev = omp_get_max_threads();
+    if (req_threads > 0) omp_set_num_threads(req_threads);
     corr_result_t r = run_corr_parallel(pairs, n);
-    
+    omp_set_num_threads(prev);
+
     pthread_mutex_unlock(&calc_lock);
 
     char *data = format_corr_json(&r, "parallel", fetch_ms, pairs, n, total_students, excluded);
@@ -179,6 +192,7 @@ int CorrPthreadHandler(struct mg_connection *conn, void *cbdata)
     char sub1[256], cls1[256], sub2[256], cls2[256];
     double fetch_ms = 0.0;
     int n = 0, total_students = 0, excluded = 0;
+    int req_threads = get_thread_count(ri);
 
     score_pair_t *pairs = prepare_pairs(conn, &n, &fetch_ms,
                                         &total_students, &excluded,
@@ -193,7 +207,10 @@ int CorrPthreadHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int saved_threads = g_num_threads;
+    if (req_threads > 0) g_num_threads = req_threads;
     corr_result_t r = run_corr_pthread(pairs, n);
+    g_num_threads = saved_threads;
 
     pthread_mutex_unlock(&calc_lock);
 
@@ -234,17 +251,28 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int req_threads = get_thread_count(ri);
+
     /* Run serial first (force single thread) */
     int prev = omp_get_max_threads();
+    int saved_threads = g_num_threads;
     omp_set_num_threads(1);
     corr_result_t serial = run_corr_serial(pairs, n);
-    omp_set_num_threads(prev);
+
+    if (req_threads > 0) {
+        omp_set_num_threads(req_threads);
+        g_num_threads = req_threads;
+    } else {
+        omp_set_num_threads(prev);
+    }
 
     /* Run parallel on same data */
     corr_result_t parallel = run_corr_parallel(pairs, n);
 
     /* Run pthreads on same data */
     corr_result_t pt_res = run_corr_pthread(pairs, n);
+    omp_set_num_threads(prev);
+    g_num_threads = saved_threads;
 
 #ifdef ENABLE_MPI
 #include <mpi.h>
