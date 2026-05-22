@@ -28,4 +28,7 @@ int CorrPthreadHandler (struct mg_connection *conn, void *cbdata);
 int CorrMpiHandler(struct mg_connection *conn, void *cbdata);
 #endif
 
+/* GET /api/calculate/correlation/all-subjects?class=CLASS&subject=SUBJECT&threads=N */
+int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata);
+
 #endif /* CORRELATION_CONTROLLER_H */

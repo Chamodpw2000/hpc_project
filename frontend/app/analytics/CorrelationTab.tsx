@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import {
-  ComposedChart, Scatter, Line, XAxis, YAxis,
+  ComposedChart, Scatter, Line, LineChart, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
@@ -16,6 +16,8 @@ interface CorrelationResult {
   total_students?: number;
   excluded?: number;
   data_points: ScatterPoint[];
+  best_fit_slope?: number;
+  best_fit_intercept?: number;
 }
 interface CorrelationCompare {
   serial: CorrelationResult;
@@ -39,6 +41,31 @@ interface CorrelationCompare {
     total_students?: number;
     excluded?: number;
     improvement_pct: number;
+  };
+}
+
+interface SubjectLineResult {
+  subject: string;
+  n_pairs: number;
+  serial: { r: number; elapsed_ms: number; threads_used: number; slope: number; intercept: number };
+  parallel: { r: number; elapsed_ms: number; threads_used: number; slope: number; intercept: number };
+  pthread: { r: number; elapsed_ms: number; threads_used: number; slope: number; intercept: number };
+  mpi?: { r: number; elapsed_ms: number; threads_used: number; slope: number; intercept: number };
+}
+interface AllSubjectsResult {
+  reference_subject: string;
+  class_name: string;
+  threads_used: number;
+  subjects: SubjectLineResult[];
+  timing: {
+    serial_total_ms: number;
+    parallel_total_ms: number;
+    pthread_total_ms: number;
+    mpi_total_ms: number;
+    db_fetch_ms: number;
+    speedup_parallel: number;
+    speedup_pthread: number;
+    speedup_mpi: number;
   };
 }
 
@@ -78,6 +105,53 @@ function trendLinePoints(pts: ScatterPoint[]): { x: number; y: number }[] {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function BestFitLineChart({ slope, intercept, color, refSubject, subject }: Readonly<{
+  slope: number;
+  intercept: number;
+  color: string;
+  refSubject: string;
+  subject: string;
+}>) {
+  const lineData = [
+    { x: 0,   y: Math.max(0, Math.min(100, intercept)) },
+    { x: 100, y: Math.max(0, Math.min(100, slope * 100 + intercept)) },
+  ];
+  return (
+    <ResponsiveContainer width="100%" height={140}>
+      <LineChart data={lineData} margin={{ top: 6, right: 8, bottom: 28, left: 8 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
+        <XAxis
+          dataKey="x"
+          type="number"
+          domain={[0, 100]}
+          label={{ value: refSubject, position: "insideBottom", offset: -16, fill: "#a1a1aa", fontSize: 10 }}
+          tick={{ fill: "#71717a", fontSize: 10 }}
+          tickLine={false}
+        />
+        <YAxis
+          dataKey="y"
+          type="number"
+          domain={[0, 100]}
+          label={{ value: subject, angle: -90, position: "insideLeft", fill: "#a1a1aa", fontSize: 10 }}
+          tick={{ fill: "#71717a", fontSize: 10 }}
+          tickLine={false}
+          axisLine={false}
+          width={30}
+        />
+        <Line
+          type="linear"
+          dataKey="y"
+          stroke={color}
+          strokeWidth={2}
+          dot={false}
+          activeDot={false}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
 
 function CorrelationChart({ points, color, subject1Name, subject2Name }: Readonly<{
   points: ScatterPoint[];
@@ -144,7 +218,7 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
       : ((result as any).mode === 'pthread'
         ? 'POSIX Threads (pthreads)'
         : ((result as any).mode === 'parallel' ? 'Parallel (OpenMP)' : 'Serial')))
-    : modeLabel;
+    : 'Correlation';
 
 
   return (
@@ -229,6 +303,9 @@ const SELECT_CLS =
   "focus:border-indigo-500 focus:outline-none disabled:opacity-50 w-full";
 
 export default function CorrelationTab() {
+  // Mode
+  const [mode, setMode] = useState<"pair" | "all">("pair");
+
   // Selector state
   const [classes, setClasses]             = useState<string[]>([]);
   const [loadingClasses, setLoadingClasses] = useState(true);
@@ -237,20 +314,23 @@ export default function CorrelationTab() {
   const [subjects, setSubjects]           = useState<SubjectOption[] | null>(null);
   const [subject1, setSubject1]           = useState("");
   const [subject2, setSubject2]           = useState("");
+  const [refSubject, setRefSubject]       = useState("");
 
   // Action state
-  const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | null>(null);
+  const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | "all" | null>(null);
   const [error, setError]                 = useState<string | null>(null);
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
   const [compareThreads, setCompareThreads] = useState(4);
+  const [allThreads, setAllThreads]       = useState(4);
 
   // Result state
-  const [serialResult, setSerialResult]       = useState<CorrelationResult | null>(null);
-  const [parallelResult, setParallelResult]   = useState<CorrelationResult | null>(null);
-  const [pthreadResult, setPthreadResult]     = useState<CorrelationResult | null>(null);
-  const [mpiResult, setMpiResult]             = useState<CorrelationResult | null>(null);
-  const [compareResult, setCompareResult]     = useState<CorrelationCompare | null>(null);
+  const [serialResult, setSerialResult]           = useState<CorrelationResult | null>(null);
+  const [parallelResult, setParallelResult]       = useState<CorrelationResult | null>(null);
+  const [pthreadResult, setPthreadResult]         = useState<CorrelationResult | null>(null);
+  const [mpiResult, setMpiResult]                 = useState<CorrelationResult | null>(null);
+  const [compareResult, setCompareResult]         = useState<CorrelationCompare | null>(null);
+  const [allSubjectsResult, setAllSubjectsResult] = useState<AllSubjectsResult | null>(null);
 
   // ── Fetch classes on mount ──
   useEffect(() => {
@@ -278,9 +358,9 @@ export default function CorrelationTab() {
 
   // ── Fetch subjects when selectedClass changes ──
   useEffect(() => {
-    if (!selectedClass) { setSubjects([]); setSubject1(""); setSubject2(""); return; }
+    if (!selectedClass) { setSubjects([]); setSubject1(""); setSubject2(""); setRefSubject(""); return; }
     setSubjects(null);
-    setSubject1(""); setSubject2("");
+    setSubject1(""); setSubject2(""); setRefSubject("");
     fetch(`/api/subjects?class=${encodeURIComponent(selectedClass)}`, { cache: "no-store" })
       .then(r => r.json())
       .then(j => setSubjects(j.data ?? []))
@@ -292,6 +372,7 @@ export default function CorrelationTab() {
     if (list.length > 0) {
       setSubject1(list[0].name);
       setSubject2(list.length > 1 ? list[1].name : list[0].name);
+      setRefSubject(list[0].name);
     }
   }, [subjects]);
 
@@ -378,318 +459,423 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
+  async function runAllSubjects() {
+    if (!selectedClass || !refSubject) return;
+    setLoading("all"); setError(null); setAllSubjectsResult(null);
+    try {
+      const params = new URLSearchParams({ class: selectedClass, subject: refSubject, threads: String(allThreads) });
+      const res  = await fetch(`${API}/api/calculate/correlation/all-subjects?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setAllSubjectsResult(json.data);
+    } catch (e) {
+      setError(`One vs All correlation failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   const canRun = !loading && !!subject1 && !!subject2;
+  const canRunAll = !loading && !!selectedClass && !!refSubject;
   const speedup = compareResult ? compareResult.comparison.speedup : 0;
 
   return (
     <>
-      {/* ── Subject Selectors ── */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">1. Select Subjects</h2>
-
-        {/* Class selector (shared) */}
-        <div className="mb-4">
-          <div className="text-xs text-zinc-400 mb-1 font-semibold">Class</div>
-          <select
-            value={selectedClass}
-            onChange={e => setSelectedClass(e.target.value)}
-            disabled={loadingClasses}
-            aria-label="Class"
-            className={SELECT_CLS + " max-w-xs"}
-          >
-            <option value="">— Class —</option>
-            {classes.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-
-        {/* Subject pair */}
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex-1 min-w-48">
-            <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 1</div>
-            <select
-              value={subject1}
-              onChange={e => setSubject1(e.target.value)}
-              disabled={!selectedClass || loadingSubjects}
-              aria-label="Subject 1"
-              className={SELECT_CLS}
-            >
-              <option value="">— Subject —</option>
-              {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-            </select>
-          </div>
-
-          <div className="flex items-center pt-4">
-            <span className="text-zinc-600 font-bold text-lg px-2">vs</span>
-          </div>
-
-          <div className="flex-1 min-w-48">
-            <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 2</div>
-            <select
-              value={subject2}
-              onChange={e => setSubject2(e.target.value)}
-              disabled={!selectedClass || loadingSubjects}
-              aria-label="Subject 2"
-              className={SELECT_CLS}
-            >
-              <option value="">— Subject —</option>
-              {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {(!subject1 || !subject2) && !loadingClasses && (
-          <p className="text-xs text-zinc-500 mt-3">Select a class and both subjects to enable calculations.</p>
-        )}
+      {/* ── Mode Switcher ── */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setMode("pair")}
+          className={`px-5 py-2 rounded-lg font-semibold text-sm transition-colors ${
+            mode === "pair"
+              ? "bg-indigo-600 text-white"
+              : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
+          }`}
+        >
+          Pair Analysis
+        </button>
+        <button
+          onClick={() => setMode("all")}
+          className={`px-5 py-2 rounded-lg font-semibold text-sm transition-colors ${
+            mode === "all"
+              ? "bg-indigo-600 text-white"
+              : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
+          }`}
+        >
+          One vs All
+        </button>
       </div>
 
-      {/* ── Calculation Buttons ── */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">2. Run Correlation</h2>
-        <div className="space-y-3">
-          {/* Serial & MPI — no thread input */}
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={runSerial}
-              disabled={!canRun}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "serial" ? "Running..." : "Run Serial"}
-            </button>
-            <button
-              onClick={runMpi}
-              disabled={!canRun}
-              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
-            </button>
-          </div>
-
-          {/* Parallel methods with thread count inputs */}
-          <div className="flex flex-wrap gap-4 items-end">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
-              <input
-                type="number"
-                min={1}
-                max={256}
-                value={openmpThreads}
-                onChange={e => setOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                disabled={!canRun}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-              />
-            </div>
-            <button
-              onClick={runParallel}
-              disabled={!canRun}
-              className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
-            </button>
-
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
-              <input
-                type="number"
-                min={1}
-                max={256}
-                value={pthreadThreads}
-                onChange={e => setPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                disabled={!canRun}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-              />
-            </div>
-            <button
-              onClick={runPthread}
-              disabled={!canRun}
-              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "pthread" ? "Running..." : "Run Pthreads"}
-            </button>
-          </div>
-
-          {/* Compare All with thread count */}
-          <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
-              <input
-                type="number"
-                min={1}
-                max={256}
-                value={compareThreads}
-                onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                disabled={!canRun}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-              />
-            </div>
-            <button
-              onClick={runCompare}
-              disabled={!canRun}
-              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
-            >
-              {loading === "compare" ? "Comparing..." : "Compare All"}
-            </button>
-            <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 mb-6 text-red-400">
-          {error}
-        </div>
-      )}
-
-      {/* ── Individual Results ── */}
-      {(serialResult || parallelResult || pthreadResult || mpiResult) && !compareResult && (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-          {serialResult && (
-            <CorrelationPanel
-              result={serialResult}
-              borderColor="border-blue-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#3b82f6"
-            />
-          )}
-          {parallelResult && (
-            <CorrelationPanel
-              result={parallelResult}
-              borderColor="border-purple-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#a855f7"
-            />
-          )}
-          {pthreadResult && (
-            <CorrelationPanel
-              result={pthreadResult}
-              borderColor="border-cyan-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#06b6d4"
-            />
-          )}
-          {mpiResult && (
-            <CorrelationPanel
-              result={mpiResult}
-              borderColor="border-green-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#22c55e"
-            />
-          )}
-        </div>
-      )}
-
-      {/* ── Compare Results ── */}
-      {compareResult && (
+      {/* ── PAIR ANALYSIS MODE ── */}
+      {mode === "pair" && (
         <>
-          {/* Speedup banner */}
-          <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
-            <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">
-              Performance Comparison
+          {/* Subject Selectors */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">1. Select Subjects</h2>
+
+            <div className="mb-4">
+              <div className="text-xs text-zinc-400 mb-1 font-semibold">Class</div>
+              <select
+                value={selectedClass}
+                onChange={e => setSelectedClass(e.target.value)}
+                disabled={loadingClasses}
+                aria-label="Class"
+                className={SELECT_CLS + " max-w-xs"}
+              >
+                <option value="">— Class —</option>
+                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-              <div>
-                <div className="text-xs text-zinc-400">Serial Time</div>
-                <div className="text-2xl font-bold text-blue-400 font-mono">
-                  {compareResult.comparison.serial_time_ms.toFixed(4)} ms
-                </div>
-                <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex-1 min-w-48">
+                <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 1</div>
+                <select
+                  value={subject1}
+                  onChange={e => setSubject1(e.target.value)}
+                  disabled={!selectedClass || loadingSubjects}
+                  aria-label="Subject 1"
+                  className={SELECT_CLS}
+                >
+                  <option value="">— Subject —</option>
+                  {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
               </div>
-              <div>
-                <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
-                <div className="text-2xl font-bold text-purple-400 font-mono">
-                  {compareResult.comparison.parallel_time_ms.toFixed(4)} ms
-                </div>
-                <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
+              <div className="flex items-center pt-4">
+                <span className="text-zinc-600 font-bold text-lg px-2">vs</span>
               </div>
-              {compareResult.comparison.pthread_time_ms !== undefined && compareResult.comparison.pthread_time_ms > 0 && (
-              <div>
-                <div className="text-xs text-zinc-400">POSIX Threads</div>
-                <div className="text-2xl font-bold text-cyan-400 font-mono">
-                  {compareResult.comparison.pthread_time_ms.toFixed(4)} ms
-                </div>
-                <div className="text-xs text-zinc-500">{compareResult.comparison.pthread_threads} threads</div>
+              <div className="flex-1 min-w-48">
+                <div className="text-xs text-zinc-400 mb-1 font-semibold">Subject 2</div>
+                <select
+                  value={subject2}
+                  onChange={e => setSubject2(e.target.value)}
+                  disabled={!selectedClass || loadingSubjects}
+                  aria-label="Subject 2"
+                  className={SELECT_CLS}
+                >
+                  <option value="">— Subject —</option>
+                  {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
               </div>
-              )}
-              {compareResult.comparison.mpi_time_ms !== undefined && compareResult.comparison.mpi_time_ms > 0 && (
-              <div>
-                <div className="text-xs text-zinc-400">MPI Distributed</div>
-                <div className="text-2xl font-bold text-green-400 font-mono">
-                  {compareResult.comparison.mpi_time_ms.toFixed(4)} ms
-                </div>
-                <div className="text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
-              </div>
-              )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-              <div>
-                <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
-                <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                  {speedup.toFixed(2)}x
-                </div>
+
+            {(!subject1 || !subject2) && !loadingClasses && (
+              <p className="text-xs text-zinc-500 mt-3">Select a class and both subjects to enable calculations.</p>
+            )}
+          </div>
+
+          {/* Calculation Buttons */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">2. Run Correlation</h2>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-3">
+                <button onClick={runSerial} disabled={!canRun}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
+                  {loading === "serial" ? "Running..." : "Run Serial"}
+                </button>
+                <button onClick={runMpi} disabled={!canRun}
+                  className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
+                  {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+                </button>
               </div>
-              {compareResult.comparison.speedup_pthread !== undefined && compareResult.comparison.speedup_pthread > 0 && (
-              <div>
-                <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
-                <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>
-                  {compareResult.comparison.speedup_pthread.toFixed(2)}x
+
+              <div className="flex flex-wrap gap-4 items-end">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
+                  <input type="number" min={1} max={256} value={openmpThreads}
+                    onChange={e => setOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRun}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50" />
                 </div>
-              </div>
-              )}
-              {compareResult.comparison.speedup_mpi !== undefined && compareResult.comparison.speedup_mpi > 0 && (
-              <div>
-                <div className="text-xs text-zinc-400">Speedup (MPI)</div>
-                <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
-                  {compareResult.comparison.speedup_mpi.toFixed(2)}x
+                <button onClick={runParallel} disabled={!canRun}
+                  className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
+                  {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
+                </button>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
+                  <input type="number" min={1} max={256} value={pthreadThreads}
+                    onChange={e => setPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRun}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50" />
                 </div>
+                <button onClick={runPthread} disabled={!canRun}
+                  className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors">
+                  {loading === "pthread" ? "Running..." : "Run Pthreads"}
+                </button>
               </div>
-              )}
-            </div>
-            <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
-              <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
+
+              <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
+                  <input type="number" min={1} max={256} value={compareThreads}
+                    onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRun}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50" />
+                </div>
+                <button onClick={runCompare} disabled={!canRun}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
+                  {loading === "compare" ? "Comparing..." : "Compare All"}
+                </button>
+                <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
+              </div>
             </div>
           </div>
 
-          {/* Side-by-side panels */}
-          <div className={`grid md:grid-cols-2 ${
-            compareResult.mpi ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-3'
-          } gap-6`}>
-            <CorrelationPanel
-              result={compareResult.serial}
-              borderColor="border-blue-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#3b82f6"
-            />
-            <CorrelationPanel
-              result={compareResult.parallel}
-              borderColor="border-purple-700"
-              subject1Name={subject1}
-              subject2Name={subject2}
-              chartColor="#a855f7"
-            />
-            {compareResult.pthread && (
-              <CorrelationPanel
-                result={compareResult.pthread}
-                borderColor="border-cyan-700"
-                subject1Name={subject1}
-                subject2Name={subject2}
-                chartColor="#06b6d4"
-              />
-            )}
-            {compareResult.mpi && (
-              <CorrelationPanel
-                result={compareResult.mpi}
-                borderColor="border-green-700"
-                subject1Name={subject1}
-                subject2Name={subject2}
-                chartColor="#22c55e"
-              />
-            )}
+          {/* Error */}
+          {error && (
+            <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 mb-6 text-red-400">{error}</div>
+          )}
+
+          {/* Individual Results */}
+          {(serialResult || parallelResult || pthreadResult || mpiResult) && !compareResult && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+              {serialResult && <CorrelationPanel result={serialResult} borderColor="border-blue-700" subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />}
+              {parallelResult && <CorrelationPanel result={parallelResult} borderColor="border-purple-700" subject1Name={subject1} subject2Name={subject2} chartColor="#a855f7" />}
+              {pthreadResult && <CorrelationPanel result={pthreadResult} borderColor="border-cyan-700" subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
+              {mpiResult && <CorrelationPanel result={mpiResult} borderColor="border-green-700" subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
+            </div>
+          )}
+
+          {/* Compare Results */}
+          {compareResult && (
+            <>
+              <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
+                <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">Performance Comparison</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                  <div>
+                    <div className="text-xs text-zinc-400">Serial Time</div>
+                    <div className="text-2xl font-bold text-blue-400 font-mono">{compareResult.comparison.serial_time_ms.toFixed(4)} ms</div>
+                    <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
+                    <div className="text-2xl font-bold text-purple-400 font-mono">{compareResult.comparison.parallel_time_ms.toFixed(4)} ms</div>
+                    <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
+                  </div>
+                  {compareResult.comparison.pthread_time_ms !== undefined && compareResult.comparison.pthread_time_ms > 0 && (
+                    <div>
+                      <div className="text-xs text-zinc-400">POSIX Threads</div>
+                      <div className="text-2xl font-bold text-cyan-400 font-mono">{compareResult.comparison.pthread_time_ms.toFixed(4)} ms</div>
+                      <div className="text-xs text-zinc-500">{compareResult.comparison.pthread_threads} threads</div>
+                    </div>
+                  )}
+                  {compareResult.comparison.mpi_time_ms !== undefined && compareResult.comparison.mpi_time_ms > 0 && (
+                    <div>
+                      <div className="text-xs text-zinc-400">MPI Distributed</div>
+                      <div className="text-2xl font-bold text-green-400 font-mono">{compareResult.comparison.mpi_time_ms.toFixed(4)} ms</div>
+                      <div className="text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                  <div>
+                    <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
+                    <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>{speedup.toFixed(2)}x</div>
+                  </div>
+                  {compareResult.comparison.speedup_pthread !== undefined && compareResult.comparison.speedup_pthread > 0 && (
+                    <div>
+                      <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
+                      <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>{compareResult.comparison.speedup_pthread.toFixed(2)}x</div>
+                    </div>
+                  )}
+                  {compareResult.comparison.speedup_mpi !== undefined && compareResult.comparison.speedup_mpi > 0 && (
+                    <div>
+                      <div className="text-xs text-zinc-400">Speedup (MPI)</div>
+                      <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>{compareResult.comparison.speedup_mpi.toFixed(2)}x</div>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
+                  <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
+                </div>
+              </div>
+
+              <div className={`grid md:grid-cols-2 ${compareResult.mpi ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-3'} gap-6`}>
+                <CorrelationPanel result={compareResult.serial} borderColor="border-blue-700" subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />
+                <CorrelationPanel result={compareResult.parallel} borderColor="border-purple-700" subject1Name={subject1} subject2Name={subject2} chartColor="#a855f7" />
+                {compareResult.pthread && <CorrelationPanel result={compareResult.pthread} borderColor="border-cyan-700" subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
+                {compareResult.mpi && <CorrelationPanel result={compareResult.mpi} borderColor="border-green-700" subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── ONE VS ALL MODE ── */}
+      {mode === "all" && (
+        <>
+          {/* Setup */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">1. Select Reference Subject</h2>
+            <p className="text-sm text-zinc-400 mb-4">
+              Pick a class and a reference subject. The backend will compute correlation of every other subject against it in one call.
+            </p>
+
+            <div className="flex flex-wrap gap-4">
+              <div className="flex-1 min-w-48">
+                <div className="text-xs text-zinc-400 mb-1 font-semibold">Class</div>
+                <select
+                  value={selectedClass}
+                  onChange={e => setSelectedClass(e.target.value)}
+                  disabled={loadingClasses}
+                  aria-label="Class"
+                  className={SELECT_CLS}
+                >
+                  <option value="">— Class —</option>
+                  {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div className="flex-1 min-w-48">
+                <div className="text-xs text-zinc-400 mb-1 font-semibold">Reference Subject</div>
+                <select
+                  value={refSubject}
+                  onChange={e => setRefSubject(e.target.value)}
+                  disabled={!selectedClass || loadingSubjects}
+                  aria-label="Reference Subject"
+                  className={SELECT_CLS}
+                >
+                  <option value="">— Subject —</option>
+                  {(subjects ?? []).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+            </div>
           </div>
+
+          {/* Run button */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4">2. Run One vs All</h2>
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Threads (OpenMP &amp; Pthreads)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={256}
+                  value={allThreads}
+                  onChange={e => setAllThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={!canRunAll}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={runAllSubjects}
+                disabled={!canRunAll}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+              >
+                {loading === "all" ? "Calculating..." : `Correlate All vs ${refSubject || "..."}`}
+              </button>
+            </div>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 mb-6 text-red-400">{error}</div>
+          )}
+
+          {/* Results */}
+          {allSubjectsResult && (
+            <>
+              {/* Overall speedup banner */}
+              <div className="bg-linear-to-r from-indigo-900/40 to-indigo-800/20 border border-indigo-700 rounded-xl p-6 mb-6">
+                <div className="text-sm text-indigo-300 mb-1 uppercase tracking-widest font-semibold text-center">
+                  One vs All — {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name}
+                </div>
+                <div className="text-xs text-zinc-400 text-center mb-4">
+                  {allSubjectsResult.subjects.length} subjects computed · {allSubjectsResult.threads_used} parallel threads
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div>
+                    <div className="text-xs text-zinc-400">Total Serial</div>
+                    <div className="text-xl font-bold text-blue-400 font-mono">{allSubjectsResult.timing.serial_total_ms.toFixed(1)} ms</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-400">Total OpenMP</div>
+                    <div className="text-xl font-bold text-purple-400 font-mono">{allSubjectsResult.timing.parallel_total_ms.toFixed(1)} ms</div>
+                    <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_parallel >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                      {allSubjectsResult.timing.speedup_parallel.toFixed(2)}x
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-zinc-400">Total Pthreads</div>
+                    <div className="text-xl font-bold text-cyan-400 font-mono">{allSubjectsResult.timing.pthread_total_ms.toFixed(1)} ms</div>
+                    <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_pthread >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                      {allSubjectsResult.timing.speedup_pthread.toFixed(2)}x
+                    </div>
+                  </div>
+                  {allSubjectsResult.timing.mpi_total_ms > 0 && (
+                    <div>
+                      <div className="text-xs text-zinc-400">Total MPI</div>
+                      <div className="text-xl font-bold text-green-400 font-mono">{allSubjectsResult.timing.mpi_total_ms.toFixed(1)} ms</div>
+                      <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_mpi >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                        {allSubjectsResult.timing.speedup_mpi.toFixed(2)}x
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Subject cards grid */}
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {allSubjectsResult.subjects.map((s, i) => {
+                  const colors = ["#3b82f6", "#a855f7", "#06b6d4", "#22c55e", "#f59e0b", "#ec4899", "#8b5cf6"];
+                  const color = colors[i % colors.length];
+                  const { label, color: labelColor } = correlationLabel(s.serial.r);
+                  return (
+                    <div key={s.subject} className="border border-zinc-700 rounded-xl p-5 bg-zinc-900/60">
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold text-white text-sm truncate">{s.subject}</h3>
+                        <span className="text-xs text-zinc-500 font-mono">{s.n_pairs} pairs</span>
+                      </div>
+
+                      {/* r value */}
+                      <div className="text-center mb-3">
+                        <div className="text-3xl font-black font-mono text-white">{s.serial.r.toFixed(4)}</div>
+                        <div className={`text-xs font-semibold mt-0.5 ${labelColor}`}>{label} · {directionLabel(s.serial.r)}</div>
+                      </div>
+
+                      {/* Best-fit line chart (no scatter points) */}
+                      <BestFitLineChart
+                        slope={s.serial.slope}
+                        intercept={s.serial.intercept}
+                        color={color}
+                        refSubject={allSubjectsResult.reference_subject}
+                        subject={s.subject}
+                      />
+
+                      {/* Timing table */}
+                      <div className="mt-3 text-xs">
+                        <div className="grid grid-cols-3 gap-1 text-center text-zinc-400 mb-1 font-semibold">
+                          <span>Method</span><span>Time</span><span>Threads</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <span className="text-blue-400">Serial</span>
+                          <span className="font-mono text-white">{s.serial.elapsed_ms.toFixed(1)} ms</span>
+                          <span className="text-zinc-500">{s.serial.threads_used}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <span className="text-purple-400">OpenMP</span>
+                          <span className="font-mono text-white">{s.parallel.elapsed_ms.toFixed(1)} ms</span>
+                          <span className="text-zinc-500">{s.parallel.threads_used}</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <span className="text-cyan-400">Pthreads</span>
+                          <span className="font-mono text-white">{s.pthread.elapsed_ms.toFixed(1)} ms</span>
+                          <span className="text-zinc-500">{s.pthread.threads_used}</span>
+                        </div>
+                        {s.mpi && (
+                          <div className="grid grid-cols-3 gap-1 text-center">
+                            <span className="text-green-400">MPI</span>
+                            <span className="font-mono text-white">{s.mpi.elapsed_ms.toFixed(1)} ms</span>
+                            <span className="text-zinc-500">{s.mpi.threads_used}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </>
       )}
     </>
