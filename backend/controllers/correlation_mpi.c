@@ -105,6 +105,10 @@ corr_result_t run_corr_mpi(const score_pair_t *pairs, int n)
     r.correlation_coefficient = (denom == 0.0) ? 0.0
         : ((double)n * sum_xy - sum_x * sum_y) / denom;
 
+    double bf_denom = (double)n * sum_x2 - sum_x * sum_x;
+    r.best_fit_slope     = (bf_denom != 0.0) ? ((double)n * sum_xy - sum_x * sum_y) / bf_denom : 0.0;
+    r.best_fit_intercept = (sum_y - r.best_fit_slope * sum_x) / n;
+
     free(local_pairs);
     free(sendcounts);
     free(displs);
