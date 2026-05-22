@@ -410,7 +410,7 @@ export default function CorrelationTab() {
   const [compareResult, setCompareResult]         = useState<CorrelationCompare | null>(null);
   const [allSubjectsResult, setAllSubjectsResult] = useState<AllSubjectsResult | null>(null);
   const [allDisplayMode, setAllDisplayMode]       = useState<AllDisplayMode>(null);
-  const [allSharedFetch, setAllSharedFetch]       = useState(true);
+  // non-null only when "Compare All" (separate-fetch) produced the current result
   const [allMethodFetchMs, setAllMethodFetchMs]   = useState<{serial:number;parallel:number;pthread:number;mpi?:number} | null>(null);
 
   // ── Fetch classes on mount ──
@@ -631,7 +631,7 @@ export default function CorrelationTab() {
     if (!selectedClass || !refSubject) return;
     setLoading("all"); setError(null); setAllSubjectsResult(null);
     setAllDisplayMode(displayMode);
-    setAllSharedFetch(true); setAllMethodFetchMs(null);
+    setAllMethodFetchMs(null);
     try {
       const params = new URLSearchParams({
         class: selectedClass,
@@ -654,7 +654,7 @@ export default function CorrelationTab() {
     if (!selectedClass || !refSubject) return;
     setLoading("all-compare"); setError(null); setAllSubjectsResult(null);
     setAllDisplayMode("compare");
-    setAllSharedFetch(false); setAllMethodFetchMs(null);
+    setAllMethodFetchMs(null);
     try {
       const base = new URLSearchParams({
         class: selectedClass, subject: refSubject,
@@ -1222,8 +1222,18 @@ export default function CorrelationTab() {
                     {hasMpi ? ` · MPI: ${allMpiProcesses} processes` : ""}
                   </div>
 
-                  {/* DB fetch banner — shared or per-method depending on which Compare was used */}
-                  {allSharedFetch ? (
+                  {/* DB fetch banner — allMethodFetchMs non-null = separate per-method, null = shared */}
+                  {allMethodFetchMs ? (
+                    <div className="bg-yellow-950/30 border border-yellow-700/40 rounded-xl p-3 mb-4">
+                      <div className="text-xs text-yellow-400/80 font-semibold uppercase tracking-wider mb-2">DB Fetch — Per Method (separate parallel fetch)</div>
+                      <div className={`grid grid-cols-2 ${hasMpi ? "md:grid-cols-4" : "md:grid-cols-3"} gap-2 text-center`}>
+                        <div><div className="text-xs text-blue-400">Serial</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs.serial ?? 0).toFixed(2)} ms</div></div>
+                        <div><div className="text-xs text-purple-400">OpenMP</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs.parallel ?? 0).toFixed(2)} ms</div></div>
+                        <div><div className="text-xs text-cyan-400">Pthreads</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs.pthread ?? 0).toFixed(2)} ms</div></div>
+                        {hasMpi && <div><div className="text-xs text-green-400">MPI</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs.mpi ?? 0).toFixed(2)} ms</div></div>}
+                      </div>
+                    </div>
+                  ) : (
                     <div className="bg-yellow-950/30 border border-yellow-700/40 rounded-xl p-3 mb-4 flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <div className="text-xs text-yellow-400/80 font-semibold uppercase tracking-wider">DB Fetch — Shared across all methods</div>
@@ -1240,16 +1250,6 @@ export default function CorrelationTab() {
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="bg-yellow-950/30 border border-yellow-700/40 rounded-xl p-3 mb-4">
-                      <div className="text-xs text-yellow-400/80 font-semibold uppercase tracking-wider mb-2">DB Fetch — Per Method (separate parallel fetch)</div>
-                      <div className={`grid grid-cols-2 ${hasMpi ? "md:grid-cols-4" : "md:grid-cols-3"} gap-2 text-center`}>
-                        <div><div className="text-xs text-blue-400">Serial</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs?.serial ?? 0).toFixed(2)} ms</div></div>
-                        <div><div className="text-xs text-purple-400">OpenMP</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs?.parallel ?? 0).toFixed(2)} ms</div></div>
-                        <div><div className="text-xs text-cyan-400">Pthreads</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs?.pthread ?? 0).toFixed(2)} ms</div></div>
-                        {hasMpi && <div><div className="text-xs text-green-400">MPI</div><div className="text-sm font-bold text-yellow-400 font-mono">{(allMethodFetchMs?.mpi ?? 0).toFixed(2)} ms</div></div>}
-                      </div>
-                    </div>
                   )}
 
                   {/* Per-method: calc time + DB fetch side-by-side */}
@@ -1259,8 +1259,8 @@ export default function CorrelationTab() {
                       <div className="text-xs text-blue-400 font-semibold mb-2">Serial</div>
                       <div className="text-xs text-zinc-400">Calc</div>
                       <div className="text-xl font-bold text-blue-400 font-mono">{(t.serial_total_ms ?? 0).toFixed(2)} ms</div>
-                      <div className="mt-1 text-xs text-yellow-400/70">{allSharedFetch ? "DB Fetch (shared)" : "DB Fetch"}</div>
-                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allSharedFetch ? (t.fetch_phase_ms ?? 0).toFixed(2) : (allMethodFetchMs?.serial ?? 0).toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">{allMethodFetchMs ? "DB Fetch" : "DB Fetch (shared)"}</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allMethodFetchMs ? (allMethodFetchMs.serial ?? 0).toFixed(2) : (t.fetch_phase_ms ?? 0).toFixed(2)} ms</div>
                       <div className="mt-1 text-xs text-zinc-500">1 thread</div>
                     </div>
                     {/* OpenMP */}
@@ -1268,8 +1268,8 @@ export default function CorrelationTab() {
                       <div className="text-xs text-purple-400 font-semibold mb-2">OpenMP</div>
                       <div className="text-xs text-zinc-400">Calc</div>
                       <div className="text-xl font-bold text-purple-400 font-mono">{(t.parallel_total_ms ?? 0).toFixed(2)} ms</div>
-                      <div className="mt-1 text-xs text-yellow-400/70">{allSharedFetch ? "DB Fetch (shared)" : "DB Fetch (OpenMP)"}</div>
-                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allSharedFetch ? (t.fetch_phase_ms ?? 0).toFixed(2) : (allMethodFetchMs?.parallel ?? 0).toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">{allMethodFetchMs ? "DB Fetch (OpenMP)" : "DB Fetch (shared)"}</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allMethodFetchMs ? (allMethodFetchMs.parallel ?? 0).toFixed(2) : (t.fetch_phase_ms ?? 0).toFixed(2)} ms</div>
                       <div className="mt-1 text-xs text-zinc-500">{allSubjectsResult.openmp_threads} threads</div>
                     </div>
                     {/* Pthreads */}
@@ -1277,8 +1277,8 @@ export default function CorrelationTab() {
                       <div className="text-xs text-cyan-400 font-semibold mb-2">Pthreads</div>
                       <div className="text-xs text-zinc-400">Calc</div>
                       <div className="text-xl font-bold text-cyan-400 font-mono">{(t.pthread_total_ms ?? 0).toFixed(2)} ms</div>
-                      <div className="mt-1 text-xs text-yellow-400/70">{allSharedFetch ? "DB Fetch (shared)" : "DB Fetch (Pthreads)"}</div>
-                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allSharedFetch ? (t.fetch_phase_ms ?? 0).toFixed(2) : (allMethodFetchMs?.pthread ?? 0).toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">{allMethodFetchMs ? "DB Fetch (Pthreads)" : "DB Fetch (shared)"}</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allMethodFetchMs ? (allMethodFetchMs.pthread ?? 0).toFixed(2) : (t.fetch_phase_ms ?? 0).toFixed(2)} ms</div>
                       <div className="mt-1 text-xs text-zinc-500">{allSubjectsResult.pthread_threads} threads</div>
                     </div>
                     {/* MPI */}
@@ -1287,8 +1287,8 @@ export default function CorrelationTab() {
                         <div className="text-xs text-green-400 font-semibold mb-2">MPI</div>
                         <div className="text-xs text-zinc-400">Calc</div>
                         <div className="text-xl font-bold text-green-400 font-mono">{(t.mpi_total_ms ?? 0).toFixed(2)} ms</div>
-                        <div className="mt-1 text-xs text-yellow-400/70">{allSharedFetch ? "DB Fetch (shared)" : "DB Fetch (MPI)"}</div>
-                        <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allSharedFetch ? (t.fetch_phase_ms ?? 0).toFixed(2) : (allMethodFetchMs?.mpi ?? 0).toFixed(2)} ms</div>
+                        <div className="mt-1 text-xs text-yellow-400/70">{allMethodFetchMs ? "DB Fetch (MPI)" : "DB Fetch (shared)"}</div>
+                        <div className="text-sm font-semibold text-yellow-400/80 font-mono">{allMethodFetchMs ? (allMethodFetchMs.mpi ?? 0).toFixed(2) : (t.fetch_phase_ms ?? 0).toFixed(2)} ms</div>
                         <div className="mt-1 text-xs text-zinc-500">{allMpiProcesses} processes</div>
                       </div>
                     )}
