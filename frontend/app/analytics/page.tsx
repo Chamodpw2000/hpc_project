@@ -326,6 +326,26 @@ export default function AnalyticsPage() {
     setLoading(null);
   }
 
+  async function runCompareFast() {
+    setLoading("compare-fast");
+    setError(null);
+    const t0 = performance.now();
+    try {
+      const res  = await fetch(
+        `${API}/api/calculate/compare?threads=${compareThreads}&mpi_processes=${mpiProcesses}`
+      );
+      const json = await res.json();
+      if (!json?.data?.serial || !json?.data?.parallel || !json?.data?.pthread)
+        throw new Error(json?.message ?? "Request failed");
+
+      setCompareData(json.data);
+      setCompareTotalMs(performance.now() - t0);
+    } catch (e) {
+      setError(`Comparison failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   async function runMpi() {
     setLoading("mpi");
     setError(null);
@@ -586,6 +606,13 @@ export default function AnalyticsPage() {
                 className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
               >
                 {loading === "compare" ? "Comparing..." : "Compare All"}
+              </button>
+              <button
+                onClick={runCompareFast}
+                disabled={loading !== null}
+                className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+              >
+                {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
               </button>
               <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
             </div>
