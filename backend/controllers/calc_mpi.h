@@ -22,7 +22,7 @@
  * array, performs distributed reductions, and gathers data for median.
  * Returns the same calc_result_t used by run_serial() and run_parallel().
  */
-calc_result_t run_mpi(const double *scores, int n);
+calc_result_t run_mpi(const double *scores, int n, int req_procs);
 
 /*
  * Worker-side handler for MPI_CMD_CALC_SCORES.

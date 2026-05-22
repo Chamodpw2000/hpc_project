@@ -17,6 +17,8 @@ typedef struct {
     double elapsed_ms;               /* wall-clock computation time */
     int    threads_used;
     int    n_pairs;                  /* number of matched data points */
+    double best_fit_slope;           /* regression line: y = slope*x + intercept */
+    double best_fit_intercept;
 } corr_result_t;
 
 /* Single-threaded Pearson r over n pairs */
@@ -39,5 +41,8 @@ char* format_corr_json(const corr_result_t *r, const char *label,
                        double db_fetch_ms,
                        const score_pair_t *points, int npts,
                        int total_students, int excluded);
+
+/* Compact JSON fragment (no data_points) for the all-subjects endpoint. Caller must free(). */
+char* format_corr_line_json(const corr_result_t *r, const char *label);
 
 #endif /* CORRELATION_ENGINE_H */

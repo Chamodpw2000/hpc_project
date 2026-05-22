@@ -12,8 +12,13 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
+    const threads = searchParams.get("threads");
 
-    const res = await fetch(`${BACKEND}/api/calculate/class/compare?class=${encodeURIComponent(cls)}`, {
+    const backendUrl = new URL(`${BACKEND}/api/calculate/class/compare`);
+    backendUrl.searchParams.set("class", cls);
+    if (threads) backendUrl.searchParams.set("threads", threads);
+
+    const res = await fetch(backendUrl.toString(), {
       cache: "no-store",
     });
 
