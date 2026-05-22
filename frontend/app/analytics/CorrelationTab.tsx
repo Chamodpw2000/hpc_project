@@ -27,7 +27,10 @@ interface CorrelationCompare {
     parallel_time_ms: number;
     pthread_time_ms?: number;
     mpi_time_ms?: number;
-    db_fetch_ms: number;
+    serial_db_fetch_ms: number;
+    parallel_db_fetch_ms: number;
+    pthread_db_fetch_ms?: number;
+    mpi_db_fetch_ms?: number;
     speedup: number;
     speedup_pthread?: number;
     speedup_mpi?: number;
@@ -191,7 +194,8 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-4 gap-2 text-center">
+      {/* Student counts */}
+      <div className="mb-2 grid grid-cols-3 gap-2 text-center">
         <div className="bg-zinc-800 rounded-lg p-3 relative group">
           <div className="text-xs text-zinc-400">Total</div>
           <div className="text-sm font-bold text-white font-mono">{result.total_students || result.n_pairs}</div>
@@ -213,9 +217,17 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
             {result.excluded ? `Skipped ${result.excluded} students missing grades` : 'All students had both grades'}
           </div>
         </div>
-        <div className="bg-zinc-800 rounded-lg p-3 relative group">
+      </div>
+
+      {/* Timing breakdown */}
+      <div className="mb-4 grid grid-cols-2 gap-2 text-center">
+        <div className="bg-zinc-800 rounded-lg p-3">
           <div className="text-xs text-zinc-400">Calc Time</div>
-          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms.toFixed(1)} ms</div>
+          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms.toFixed(2)} ms</div>
+        </div>
+        <div className="bg-zinc-800 rounded-lg p-3">
+          <div className="text-xs text-yellow-400/80">DB Fetch</div>
+          <div className="text-sm font-bold text-yellow-400 font-mono">{result.db_fetch_ms.toFixed(2)} ms</div>
         </div>
       </div>
 
@@ -523,22 +535,25 @@ export default function CorrelationTab() {
       setCompareResult({
         serial: s, parallel: par, pthread: pt, mpi,
         comparison: {
-          serial_time_ms:   s.elapsed_ms,
-          parallel_time_ms: par.elapsed_ms,
-          pthread_time_ms:  pt.elapsed_ms,
-          mpi_time_ms:      mpi?.elapsed_ms,
-          db_fetch_ms:      s.db_fetch_ms,
+          serial_time_ms:        s.elapsed_ms,
+          parallel_time_ms:      par.elapsed_ms,
+          pthread_time_ms:       pt.elapsed_ms,
+          mpi_time_ms:           mpi?.elapsed_ms,
+          serial_db_fetch_ms:    s.db_fetch_ms,
+          parallel_db_fetch_ms:  par.db_fetch_ms,
+          pthread_db_fetch_ms:   pt.db_fetch_ms,
+          mpi_db_fetch_ms:       mpi?.db_fetch_ms,
           speedup,
           speedup_pthread,
           speedup_mpi,
-          serial_threads:   s.threads_used,
-          parallel_threads: par.threads_used,
-          pthread_threads:  pt.threads_used,
-          mpi_threads:      mpi?.threads_used,
-          n_pairs:          s.n_pairs,
-          total_students:   s.total_students,
-          excluded:         s.excluded,
-          improvement_pct:  (speedup - 1) * 100,
+          serial_threads:        s.threads_used,
+          parallel_threads:      par.threads_used,
+          pthread_threads:       pt.threads_used,
+          mpi_threads:           mpi?.threads_used,
+          n_pairs:               s.n_pairs,
+          total_students:        s.total_students,
+          excluded:              s.excluded,
+          improvement_pct:       (speedup - 1) * 100,
         },
       });
     } catch (e) {
@@ -742,35 +757,61 @@ export default function CorrelationTab() {
           {/* Compare Results */}
           {compareResult && (
             <>
-              <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6 text-center">
-                <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">Performance Comparison</div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                  <div>
-                    <div className="text-xs text-zinc-400">Serial Time</div>
-                    <div className="text-2xl font-bold text-blue-400 font-mono">{compareResult.comparison.serial_time_ms.toFixed(4)} ms</div>
-                    <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
+              <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-6">
+                <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold text-center">Performance Comparison</div>
+                <div className="text-xs text-zinc-500 text-center mb-4">
+                  <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> student pairs analysed
+                </div>
+
+                {/* Per-method: calc time + db fetch */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  {/* Serial */}
+                  <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                    <div className="text-xs text-blue-400 font-semibold mb-2">Serial</div>
+                    <div className="text-xs text-zinc-400">Calc</div>
+                    <div className="text-xl font-bold text-blue-400 font-mono">{compareResult.comparison.serial_time_ms.toFixed(3)} ms</div>
+                    <div className="mt-1 text-xs text-yellow-400/80">DB Fetch</div>
+                    <div className="text-base font-semibold text-yellow-400 font-mono">{compareResult.comparison.serial_db_fetch_ms.toFixed(3)} ms</div>
+                    <div className="mt-1 text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
                   </div>
-                  <div>
-                    <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
-                    <div className="text-2xl font-bold text-purple-400 font-mono">{compareResult.comparison.parallel_time_ms.toFixed(4)} ms</div>
-                    <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
+
+                  {/* OpenMP */}
+                  <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                    <div className="text-xs text-purple-400 font-semibold mb-2">Parallel (OpenMP)</div>
+                    <div className="text-xs text-zinc-400">Calc</div>
+                    <div className="text-xl font-bold text-purple-400 font-mono">{compareResult.comparison.parallel_time_ms.toFixed(3)} ms</div>
+                    <div className="mt-1 text-xs text-yellow-400/80">DB Fetch</div>
+                    <div className="text-base font-semibold text-yellow-400 font-mono">{compareResult.comparison.parallel_db_fetch_ms.toFixed(3)} ms</div>
+                    <div className="mt-1 text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
                   </div>
+
+                  {/* Pthreads */}
                   {compareResult.comparison.pthread_time_ms !== undefined && compareResult.comparison.pthread_time_ms > 0 && (
-                    <div>
-                      <div className="text-xs text-zinc-400">POSIX Threads</div>
-                      <div className="text-2xl font-bold text-cyan-400 font-mono">{compareResult.comparison.pthread_time_ms.toFixed(4)} ms</div>
-                      <div className="text-xs text-zinc-500">{compareResult.comparison.pthread_threads} threads</div>
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <div className="text-xs text-cyan-400 font-semibold mb-2">POSIX Threads</div>
+                      <div className="text-xs text-zinc-400">Calc</div>
+                      <div className="text-xl font-bold text-cyan-400 font-mono">{compareResult.comparison.pthread_time_ms.toFixed(3)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/80">DB Fetch</div>
+                      <div className="text-base font-semibold text-yellow-400 font-mono">{(compareResult.comparison.pthread_db_fetch_ms ?? 0).toFixed(3)} ms</div>
+                      <div className="mt-1 text-xs text-zinc-500">{compareResult.comparison.pthread_threads} threads</div>
                     </div>
                   )}
+
+                  {/* MPI */}
                   {compareResult.comparison.mpi_time_ms !== undefined && compareResult.comparison.mpi_time_ms > 0 && (
-                    <div>
-                      <div className="text-xs text-zinc-400">MPI Distributed</div>
-                      <div className="text-2xl font-bold text-green-400 font-mono">{compareResult.comparison.mpi_time_ms.toFixed(4)} ms</div>
-                      <div className="text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <div className="text-xs text-green-400 font-semibold mb-2">MPI Distributed</div>
+                      <div className="text-xs text-zinc-400">Calc</div>
+                      <div className="text-xl font-bold text-green-400 font-mono">{compareResult.comparison.mpi_time_ms.toFixed(3)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/80">DB Fetch</div>
+                      <div className="text-base font-semibold text-yellow-400 font-mono">{(compareResult.comparison.mpi_db_fetch_ms ?? 0).toFixed(3)} ms</div>
+                      <div className="mt-1 text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+
+                {/* Speedups */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-amber-800/50 text-center">
                   <div>
                     <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
                     <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>{speedup.toFixed(2)}x</div>
@@ -787,9 +828,6 @@ export default function CorrelationTab() {
                       <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>{compareResult.comparison.speedup_mpi.toFixed(2)}x</div>
                     </div>
                   )}
-                </div>
-                <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
-                  <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
                 </div>
               </div>
 
@@ -971,27 +1009,35 @@ export default function CorrelationTab() {
                     {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name} ·{" "}
                     {allSubjectsResult.subjects.length} subjects
                   </div>
-                  <div className="flex flex-wrap justify-center gap-8">
-                    <div className="text-center">
-                      <div className="text-xs text-zinc-400 mb-1">Total Calc Time</div>
-                      <div className={`text-3xl font-black font-mono ${timeColor}`}>
+                  <div className={`grid grid-cols-2 ${speedupVal !== null && speedupVal !== undefined && speedupVal > 0 ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4`}>
+                    {/* Calc time */}
+                    <div className="bg-zinc-800/50 rounded-xl p-4 text-center">
+                      <div className="text-xs text-zinc-400 mb-1 uppercase tracking-wider">Total Calc Time</div>
+                      <div className={`text-2xl font-black font-mono ${timeColor}`}>
                         {methodTotalMs.toFixed(2)} ms
                       </div>
+                      <div className="text-xs text-zinc-500 mt-1">across {allSubjectsResult.subjects.length} subjects</div>
                     </div>
+
+                    {/* DB fetch (shared) */}
+                    <div className="bg-zinc-800/50 rounded-xl p-4 text-center">
+                      <div className="text-xs text-yellow-400/80 mb-1 uppercase tracking-wider">DB Fetch (shared)</div>
+                      <div className="text-2xl font-black font-mono text-yellow-400">
+                        {t.fetch_phase_ms.toFixed(2)} ms
+                      </div>
+                      <div className="text-xs text-zinc-500 mt-1">wall-clock, all subjects</div>
+                    </div>
+
+                    {/* Speedup */}
                     {speedupVal !== null && speedupVal !== undefined && speedupVal > 0 && (
-                      <div className="text-center">
-                        <div className="text-xs text-zinc-400 mb-1">Speedup vs Serial</div>
-                        <div className={`text-3xl font-black font-mono ${speedupVal >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                      <div className="bg-zinc-800/50 rounded-xl p-4 text-center">
+                        <div className="text-xs text-zinc-400 mb-1 uppercase tracking-wider">Speedup vs Serial</div>
+                        <div className={`text-2xl font-black font-mono ${speedupVal >= 1 ? "text-emerald-400" : "text-red-400"}`}>
                           {speedupVal.toFixed(2)}x
                         </div>
+                        <div className="text-xs text-zinc-500 mt-1">calc time only</div>
                       </div>
                     )}
-                    <div className="text-center">
-                      <div className="text-xs text-zinc-400 mb-1">DB Fetch</div>
-                      <div className="text-3xl font-black font-mono text-zinc-300">
-                        {t.fetch_phase_ms.toFixed(1)} ms
-                      </div>
-                    </div>
                   </div>
                 </div>
 
@@ -1032,45 +1078,81 @@ export default function CorrelationTab() {
                     {hasMpi ? ` · MPI: ${allMpiProcesses} processes` : ""}
                   </div>
 
-                  {/* Total times row */}
-                  <div className={`grid grid-cols-2 ${hasMpi ? "md:grid-cols-4" : "md:grid-cols-3"} gap-4 text-center mb-4`}>
+                  {/* Shared DB fetch banner */}
+                  <div className="bg-yellow-950/30 border border-yellow-700/40 rounded-xl p-3 mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-xs text-zinc-400">Total Serial</div>
-                      <div className="text-2xl font-bold text-blue-400 font-mono">{t.serial_total_ms.toFixed(2)} ms</div>
-                      <div className="text-xs text-zinc-500">1 thread</div>
+                      <div className="text-xs text-yellow-400/80 font-semibold uppercase tracking-wider">DB Fetch — Shared across all methods</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">{allSubjectsResult.subjects.length} subjects fetched concurrently in one parallel phase</div>
                     </div>
-                    <div>
-                      <div className="text-xs text-zinc-400">Total OpenMP</div>
-                      <div className="text-2xl font-bold text-purple-400 font-mono">{t.parallel_total_ms.toFixed(2)} ms</div>
-                      <div className="text-xs text-zinc-500">{allSubjectsResult.openmp_threads} threads</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-zinc-400">Total Pthreads</div>
-                      <div className="text-2xl font-bold text-cyan-400 font-mono">{t.pthread_total_ms.toFixed(2)} ms</div>
-                      <div className="text-xs text-zinc-500">{allSubjectsResult.pthread_threads} threads</div>
-                    </div>
-                    {hasMpi && (
+                    <div className="flex gap-6 text-center">
                       <div>
-                        <div className="text-xs text-zinc-400">Total MPI</div>
-                        <div className="text-2xl font-bold text-green-400 font-mono">{t.mpi_total_ms.toFixed(2)} ms</div>
-                        <div className="text-xs text-zinc-500">{allMpiProcesses} processes</div>
+                        <div className="text-xs text-zinc-400">Wall-clock</div>
+                        <div className="text-xl font-bold text-yellow-400 font-mono">{t.fetch_phase_ms.toFixed(2)} ms</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-zinc-400">Accumulated</div>
+                        <div className="text-xl font-bold text-yellow-300 font-mono">{t.db_fetch_ms.toFixed(2)} ms</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Per-method: calc time + DB fetch (shared) side-by-side */}
+                  <div className={`grid grid-cols-2 ${hasMpi ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3 mb-4`}>
+                    {/* Serial */}
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <div className="text-xs text-blue-400 font-semibold mb-2">Serial</div>
+                      <div className="text-xs text-zinc-400">Calc</div>
+                      <div className="text-xl font-bold text-blue-400 font-mono">{t.serial_total_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">DB Fetch (shared)</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{t.fetch_phase_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-zinc-500">1 thread</div>
+                    </div>
+                    {/* OpenMP */}
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <div className="text-xs text-purple-400 font-semibold mb-2">OpenMP</div>
+                      <div className="text-xs text-zinc-400">Calc</div>
+                      <div className="text-xl font-bold text-purple-400 font-mono">{t.parallel_total_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">DB Fetch (shared)</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{t.fetch_phase_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-zinc-500">{allSubjectsResult.openmp_threads} threads</div>
+                    </div>
+                    {/* Pthreads */}
+                    <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                      <div className="text-xs text-cyan-400 font-semibold mb-2">Pthreads</div>
+                      <div className="text-xs text-zinc-400">Calc</div>
+                      <div className="text-xl font-bold text-cyan-400 font-mono">{t.pthread_total_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-yellow-400/70">DB Fetch (shared)</div>
+                      <div className="text-sm font-semibold text-yellow-400/80 font-mono">{t.fetch_phase_ms.toFixed(2)} ms</div>
+                      <div className="mt-1 text-xs text-zinc-500">{allSubjectsResult.pthread_threads} threads</div>
+                    </div>
+                    {/* MPI */}
+                    {hasMpi && (
+                      <div className="bg-zinc-800/50 rounded-xl p-3 text-center">
+                        <div className="text-xs text-green-400 font-semibold mb-2">MPI</div>
+                        <div className="text-xs text-zinc-400">Calc</div>
+                        <div className="text-xl font-bold text-green-400 font-mono">{t.mpi_total_ms.toFixed(2)} ms</div>
+                        <div className="mt-1 text-xs text-yellow-400/70">DB Fetch (shared)</div>
+                        <div className="text-sm font-semibold text-yellow-400/80 font-mono">{t.fetch_phase_ms.toFixed(2)} ms</div>
+                        <div className="mt-1 text-xs text-zinc-500">{allMpiProcesses} processes</div>
                       </div>
                     )}
                   </div>
 
                   {/* Speedups row */}
-                  <div className={`grid grid-cols-1 ${hasMpi ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4 text-center mb-4`}>
+                  <div className={`grid grid-cols-1 ${hasMpi ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4 text-center pt-3 border-t border-amber-800/50`}>
                     <div>
                       <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
                       <div className={`text-4xl font-black font-mono ${t.speedup_parallel >= 1 ? "text-emerald-400" : "text-red-400"}`}>
                         {t.speedup_parallel.toFixed(2)}x
                       </div>
+                      <div className="text-xs text-zinc-500">calc time only</div>
                     </div>
                     <div>
                       <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
                       <div className={`text-4xl font-black font-mono ${t.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>
                         {t.speedup_pthread.toFixed(2)}x
                       </div>
+                      <div className="text-xs text-zinc-500">calc time only</div>
                     </div>
                     {hasMpi && (
                       <div>
@@ -1078,22 +1160,9 @@ export default function CorrelationTab() {
                         <div className={`text-4xl font-black font-mono ${t.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
                           {t.speedup_mpi.toFixed(2)}x
                         </div>
+                        <div className="text-xs text-zinc-500">calc time only</div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Timing phases */}
-                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-amber-800/50">
-                    <div className="bg-zinc-800/40 rounded-lg p-3 text-center">
-                      <div className="text-xs text-zinc-400 mb-1">Parallel Fetch Phase</div>
-                      <div className="text-lg font-bold text-indigo-300 font-mono">{t.fetch_phase_ms.toFixed(1)} ms</div>
-                      <div className="text-xs text-zinc-500">{allSubjectsResult.subjects.length} subjects fetched concurrently</div>
-                    </div>
-                    <div className="bg-zinc-800/40 rounded-lg p-3 text-center">
-                      <div className="text-xs text-zinc-400 mb-1">Calculation Phase</div>
-                      <div className="text-lg font-bold text-amber-300 font-mono">{t.calc_phase_ms.toFixed(1)} ms</div>
-                      <div className="text-xs text-zinc-500">Serial + OpenMP + Pthreads{hasMpi ? " + MPI" : ""} per subject</div>
-                    </div>
                   </div>
                 </div>
 
