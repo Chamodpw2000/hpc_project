@@ -58,9 +58,9 @@ db_connection_t* db_init(const char *connection_string, const char *db_name)
 
     /* Ensure timeouts are set so stale streams don't hang forever */
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 0) == 0)
-        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 5000);
+        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 30000);
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 0) == 0)
-        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 10000);
+        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 20000);
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 0) == 0)
         mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 120000);
 
