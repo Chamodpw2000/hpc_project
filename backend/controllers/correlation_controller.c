@@ -458,7 +458,17 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     if (!class_name[0] || !ref_subject[0])
         return SendErrorResponse(conn, 400, "Missing required parameters: class, subject");
 
-    int req_threads = get_thread_count(ri);
+    int req_threads = get_thread_count(ri);  /* fallback if specific params absent */
+
+    char omp_str[16] = "", pt_str[16] = "";
+    mg_get_var(qs, qsl, "openmp_threads",  omp_str, sizeof(omp_str));
+    mg_get_var(qs, qsl, "pthread_threads", pt_str,  sizeof(pt_str));
+
+    int prev_omp = omp_get_max_threads();
+    int req_omp  = atoi(omp_str);
+    int req_pt   = atoi(pt_str);
+    if (req_omp <= 0 || req_omp > 256) req_omp = (req_threads > 0) ? req_threads : prev_omp;
+    if (req_pt  <= 0 || req_pt  > 256) req_pt  = (req_threads > 0) ? req_threads : g_num_threads;
 
     char **subjects = NULL;
     int subject_count = db_get_class_subject_names(global_db, class_name, &subjects);
@@ -476,10 +486,8 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
-    int prev     = omp_get_max_threads();
-    int saved_g  = g_num_threads;
-    int tval     = (req_threads > 0) ? req_threads : prev;
-    if (req_threads > 0) { omp_set_num_threads(req_threads); g_num_threads = req_threads; }
+    int prev    = prev_omp;
+    int saved_g = g_num_threads;
 
     double total_serial_ms = 0, total_par_ms = 0, total_pt_ms = 0;
     double total_mpi_ms = 0, total_db_ms = 0;
@@ -512,10 +520,13 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         omp_set_num_threads(1); g_num_threads = 1;
         corr_result_t serial = run_corr_serial(pairs, n);
 
-        /* Restore threads for parallel methods */
-        omp_set_num_threads(tval); g_num_threads = tval;
+        /* OpenMP — its own thread count */
+        omp_set_num_threads(req_omp);
         corr_result_t par = run_corr_parallel(pairs, n);
-        corr_result_t pt  = run_corr_pthread(pairs, n);
+
+        /* Pthreads — its own thread count */
+        g_num_threads = req_pt;
+        corr_result_t pt = run_corr_pthread(pairs, n);
 
         total_serial_ms += serial.elapsed_ms;
         total_par_ms    += par.elapsed_ms;
@@ -537,22 +548,31 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
 #endif
         free(pairs);
 
-        char entry[1024];
+        double sp_par = (par.elapsed_ms > 0) ? serial.elapsed_ms / par.elapsed_ms : 0.0;
+        double sp_pt  = (pt.elapsed_ms  > 0) ? serial.elapsed_ms / pt.elapsed_ms  : 0.0;
+#ifdef ENABLE_MPI
+        double sp_mpi = (mpi_res.elapsed_ms > 0) ? serial.elapsed_ms / mpi_res.elapsed_ms : 0.0;
+#else
+        double sp_mpi = 0.0;
+#endif
+
+        char entry[1280];
         snprintf(entry, sizeof(entry),
             "%s{"
             "\"subject\":\"%s\","
             "\"n_pairs\":%d,"
             "\"serial\":{\"r\":%.6f,\"elapsed_ms\":%.4f,\"threads_used\":%d,\"slope\":%.6f,\"intercept\":%.6f},"
-            "\"parallel\":{\"r\":%.6f,\"elapsed_ms\":%.4f,\"threads_used\":%d,\"slope\":%.6f,\"intercept\":%.6f},"
-            "\"pthread\":{\"r\":%.6f,\"elapsed_ms\":%.4f,\"threads_used\":%d,\"slope\":%.6f,\"intercept\":%.6f},"
-            "\"mpi\":%s"
+            "\"parallel\":{\"r\":%.6f,\"elapsed_ms\":%.4f,\"threads_used\":%d,\"slope\":%.6f,\"intercept\":%.6f,\"speedup\":%.4f},"
+            "\"pthread\":{\"r\":%.6f,\"elapsed_ms\":%.4f,\"threads_used\":%d,\"slope\":%.6f,\"intercept\":%.6f,\"speedup\":%.4f},"
+            "\"mpi\":%s,"
+            "\"speedup_mpi\":%.4f"
             "}",
             (processed > 0 ? "," : ""),
             subjects[i], n,
             serial.correlation_coefficient, serial.elapsed_ms, serial.threads_used, serial.best_fit_slope, serial.best_fit_intercept,
-            par.correlation_coefficient,    par.elapsed_ms,    par.threads_used,    par.best_fit_slope,    par.best_fit_intercept,
-            pt.correlation_coefficient,     pt.elapsed_ms,     pt.threads_used,     pt.best_fit_slope,     pt.best_fit_intercept,
-            mpi_json);
+            par.correlation_coefficient,    par.elapsed_ms,    par.threads_used,    par.best_fit_slope,    par.best_fit_intercept, sp_par,
+            pt.correlation_coefficient,     pt.elapsed_ms,     pt.threads_used,     pt.best_fit_slope,     pt.best_fit_intercept,  sp_pt,
+            mpi_json, sp_mpi);
 
         cc_buf_append(&subj_buf, &subj_len, &subj_cap, entry);
         processed++;
@@ -581,7 +601,8 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         "{"
         "\"reference_subject\":\"%s\","
         "\"class_name\":\"%s\","
-        "\"threads_used\":%d,"
+        "\"openmp_threads\":%d,"
+        "\"pthread_threads\":%d,"
         "\"subjects\":[%s],"
         "\"timing\":{"
         "\"serial_total_ms\":%.4f,"
@@ -594,7 +615,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
         "\"speedup_mpi\":%.4f"
         "}"
         "}",
-        ref_subject, class_name, tval,
+        ref_subject, class_name, req_omp, req_pt,
         subj_buf,
         total_serial_ms, total_par_ms, total_pt_ms, total_mpi_ms, total_db_ms,
         speedup_par, speedup_pt, speedup_mpi);
