@@ -93,7 +93,7 @@ function GradeBar({ grade, count, total, color }: Readonly<{ grade: string; coun
   );
 }
 
-export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean }>) {
+export function ResultPanel({ result, color, totalMs, hideRounding, hideTiming }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean; hideTiming?: boolean }>) {
   const gd = result.grade_distribution;
   const total = (gd.A_90_100 ?? 0) + (gd.B_80_89 ?? 0) +
     (gd.C_70_79 ?? 0) + (gd.D_60_69 ?? 0) + (gd.F_below_60 ?? 0);
@@ -107,29 +107,31 @@ export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{
         </span>
       </div>
 
-      <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center space-y-1">
-        <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Time Breakdown</div>
-        <div className="grid grid-cols-3 gap-1 text-center mt-1">
-          <div>
-            <div className="text-xs text-zinc-500">DB Fetch</div>
-            <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(result.db_fetch_ms)}</div>
+      {!hideTiming && (
+        <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center space-y-1">
+          <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Time Breakdown</div>
+          <div className="grid grid-cols-3 gap-1 text-center mt-1">
+            <div>
+              <div className="text-xs text-zinc-500">DB Fetch</div>
+              <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(result.db_fetch_ms)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Calculation</div>
+              <div className="text-sm font-bold text-white font-mono">{formatTime(result.elapsed_ms)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Sort</div>
+              <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms ?? 0)}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-zinc-500">Calculation</div>
-            <div className="text-sm font-bold text-white font-mono">{formatTime(result.elapsed_ms)}</div>
-          </div>
-          <div>
-            <div className="text-xs text-zinc-500">Sort</div>
-            <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms ?? 0)}</div>
-          </div>
+          {totalMs != null && !hideRounding && (
+            <div className="mt-2 pt-2 border-t border-zinc-700">
+              <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
+              <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
+            </div>
+          )}
         </div>
-        {totalMs != null && !hideRounding && (
-          <div className="mt-2 pt-2 border-t border-zinc-700">
-            <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
-            <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2 mb-4">
         <StatCard label="Mean" value={result.statistics.mean.toFixed(2)} />
