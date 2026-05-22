@@ -13,19 +13,31 @@ interface CorrelationResult {
   db_fetch_ms: number;
   threads_used: number;
   n_pairs: number;
+  total_students?: number;
+  excluded?: number;
   data_points: ScatterPoint[];
 }
 interface CorrelationCompare {
   serial: CorrelationResult;
   parallel: CorrelationResult;
+  pthread?: CorrelationResult;
+  mpi?: CorrelationResult;
   comparison: {
     serial_time_ms: number;
     parallel_time_ms: number;
+    pthread_time_ms?: number;
+    mpi_time_ms?: number;
     db_fetch_ms: number;
     speedup: number;
+    speedup_pthread?: number;
+    speedup_mpi?: number;
     serial_threads: number;
     parallel_threads: number;
+    pthread_threads?: number;
+    mpi_threads?: number;
     n_pairs: number;
+    total_students?: number;
+    excluded?: number;
     improvement_pct: number;
   };
 }
@@ -126,14 +138,21 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
 }>) {
   const r = result.correlation_coefficient;
   const { label, color: labelColor } = correlationLabel(r);
-  const modeLabel = result.threads_used === 1 ? "Serial" : "Parallel (OpenMP)";
+  const title = (result as any).mode
+    ? ((result as any).mode === 'mpi'
+      ? 'MPI Distributed'
+      : ((result as any).mode === 'pthread'
+        ? 'POSIX Threads (pthreads)'
+        : ((result as any).mode === 'parallel' ? 'Parallel (OpenMP)' : 'Serial')))
+    : modeLabel;
+
 
   return (
     <div className={`border ${borderColor} rounded-xl p-5 bg-zinc-900/50`}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-white uppercase tracking-wider">{modeLabel}</h3>
+        <h3 className="text-lg font-bold text-white uppercase tracking-wider">{title}</h3>
         <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-mono">
-          {result.threads_used} thread{result.threads_used === 1 ? "" : "s"}
+          {result.threads_used} {result.threads_used === 1 ? "thread" : ((result as any).mode === 'mpi' ? "processes" : "threads")}
         </span>
       </div>
 
@@ -151,20 +170,42 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
         </div>
       </div>
 
-      <div className="mb-4 grid grid-cols-3 gap-2 text-center">
-        <div className="bg-zinc-800 rounded-lg p-3">
-          <div className="text-xs text-zinc-400">Students</div>
-          <div className="text-sm font-bold text-white font-mono">{result.n_pairs}</div>
+      <div className="mb-4 grid grid-cols-4 gap-2 text-center">
+        <div className="bg-zinc-800 rounded-lg p-3 relative group">
+          <div className="text-xs text-zinc-400">Total</div>
+          <div className="text-sm font-bold text-white font-mono">{result.total_students || result.n_pairs}</div>
+          <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 text-xs p-2 rounded -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap z-10 border border-zinc-700 pointer-events-none">
+            Total students in class
+          </div>
         </div>
-        <div className="bg-zinc-800 rounded-lg p-3">
+        <div className="bg-zinc-800 rounded-lg p-3 relative group">
+          <div className="text-xs text-emerald-400/70">Analyzed</div>
+          <div className="text-sm font-bold text-emerald-400 font-mono">{result.n_pairs}</div>
+          <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 text-xs p-2 rounded -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap z-10 border border-zinc-700 pointer-events-none">
+            Students with both scores
+          </div>
+        </div>
+        <div className={`bg-zinc-800 rounded-lg p-3 relative group ${result.excluded ? 'ring-1 ring-amber-500/50 bg-amber-950/20' : ''}`}>
+          <div className={`text-xs ${result.excluded ? 'text-amber-400/80 font-semibold' : 'text-zinc-400'}`}>Excluded</div>
+          <div className={`text-sm font-bold font-mono ${result.excluded ? 'text-amber-400' : 'text-white'}`}>{result.excluded || 0}</div>
+          <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 text-xs p-2 rounded -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap z-10 border border-zinc-700 pointer-events-none">
+            {result.excluded ? `Skipped ${result.excluded} students missing grades` : 'All students had both grades'}
+          </div>
+        </div>
+        <div className="bg-zinc-800 rounded-lg p-3 relative group">
           <div className="text-xs text-zinc-400">Calc Time</div>
-          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms.toFixed(4)} ms</div>
-        </div>
-        <div className="bg-zinc-800 rounded-lg p-3">
-          <div className="text-xs text-zinc-400">Threads</div>
-          <div className="text-sm font-bold text-white font-mono">{result.threads_used}</div>
+          <div className="text-sm font-bold text-white font-mono">{result.elapsed_ms.toFixed(1)} ms</div>
         </div>
       </div>
+
+      {result.excluded ? (
+        <div className="mb-4 text-xs text-amber-400/80 bg-amber-500/10 border border-amber-500/20 p-2 rounded flex items-center justify-center">
+          <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          {result.excluded} students excluded due to missing scores
+        </div>
+      ) : null}
 
       <div>
         <div className="text-xs text-zinc-400 mb-2 font-semibold uppercase tracking-wider">
@@ -198,12 +239,14 @@ export default function CorrelationTab() {
   const [subject2, setSubject2]           = useState("");
 
   // Action state
-  const [loading, setLoading]             = useState<"serial" | "parallel" | "compare" | null>(null);
+  const [loading, setLoading]             = useState<"serial" | "parallel" | "pthread" | "mpi" | "compare" | null>(null);
   const [error, setError]                 = useState<string | null>(null);
 
   // Result state
   const [serialResult, setSerialResult]       = useState<CorrelationResult | null>(null);
   const [parallelResult, setParallelResult]   = useState<CorrelationResult | null>(null);
+  const [pthreadResult, setPthreadResult]     = useState<CorrelationResult | null>(null);
+  const [mpiResult, setMpiResult]             = useState<CorrelationResult | null>(null);
   const [compareResult, setCompareResult]     = useState<CorrelationCompare | null>(null);
 
   // ── Fetch classes on mount ──
@@ -279,14 +322,48 @@ export default function CorrelationTab() {
       if (!res.ok) throw new Error(json.message ?? "Request failed");
       setParallelResult(json.data);
       setSerialResult(null);
+      setPthreadResult(null);
+      setMpiResult(null);
     } catch (e) {
       setError(`Parallel correlation failed: ${e}`);
     }
     setLoading(null);
   }
 
+  async function runPthread() {
+    setLoading("pthread"); setError(null); setCompareResult(null);
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/pthread?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setPthreadResult(json.data);
+      setSerialResult(null);
+      setParallelResult(null);
+      setMpiResult(null);
+    } catch (e) {
+      setError(`Pthread correlation failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
+  async function runMpi() {
+    setLoading("mpi"); setError(null); setCompareResult(null);
+    try {
+      const res  = await fetch(`${API}/api/calculate/correlation/mpi?${buildParams()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Request failed");
+      setMpiResult(json.data);
+      setSerialResult(null);
+      setParallelResult(null);
+      setPthreadResult(null);
+    } catch (e) {
+      setError(`MPI correlation failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
   async function runCompare() {
-    setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null);
+    setLoading("compare"); setError(null); setSerialResult(null); setParallelResult(null); setPthreadResult(null); setMpiResult(null);
     try {
       const res  = await fetch(`${API}/api/calculate/correlation/compare?${buildParams()}`);
       const json = await res.json();
@@ -381,11 +458,25 @@ export default function CorrelationTab() {
             {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
           </button>
           <button
+            onClick={runPthread}
+            disabled={!canRun}
+            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+          >
+            {loading === "pthread" ? "Running..." : "Run Pthreads"}
+          </button>
+          <button
+            onClick={runMpi}
+            disabled={!canRun}
+            className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+          >
+            {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+          </button>
+          <button
             onClick={runCompare}
             disabled={!canRun}
             className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
           >
-            {loading === "compare" ? "Comparing..." : "Compare Both"}
+            {loading === "compare" ? "Comparing..." : "Compare All"}
           </button>
         </div>
       </div>
@@ -398,8 +489,8 @@ export default function CorrelationTab() {
       )}
 
       {/* ── Individual Results ── */}
-      {(serialResult || parallelResult) && !compareResult && (
-        <div className="grid md:grid-cols-2 gap-6 mb-6">
+      {(serialResult || parallelResult || pthreadResult || mpiResult) && !compareResult && (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
           {serialResult && (
             <CorrelationPanel
               result={serialResult}
@@ -418,6 +509,24 @@ export default function CorrelationTab() {
               chartColor="#a855f7"
             />
           )}
+          {pthreadResult && (
+            <CorrelationPanel
+              result={pthreadResult}
+              borderColor="border-cyan-700"
+              subject1Name={subject1}
+              subject2Name={subject2}
+              chartColor="#06b6d4"
+            />
+          )}
+          {mpiResult && (
+            <CorrelationPanel
+              result={mpiResult}
+              borderColor="border-green-700"
+              subject1Name={subject1}
+              subject2Name={subject2}
+              chartColor="#22c55e"
+            />
+          )}
         </div>
       )}
 
@@ -429,7 +538,7 @@ export default function CorrelationTab() {
             <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold">
               Performance Comparison
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
               <div>
                 <div className="text-xs text-zinc-400">Serial Time</div>
                 <div className="text-2xl font-bold text-blue-400 font-mono">
@@ -438,21 +547,54 @@ export default function CorrelationTab() {
                 <div className="text-xs text-zinc-500">{compareResult.comparison.serial_threads} thread</div>
               </div>
               <div>
-                <div className="text-xs text-zinc-400">Speedup</div>
-                <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                  {speedup.toFixed(2)}x
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {compareResult.comparison.improvement_pct.toFixed(1)}% faster
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-400">Parallel Time</div>
+                <div className="text-xs text-zinc-400">Parallel (OpenMP)</div>
                 <div className="text-2xl font-bold text-purple-400 font-mono">
                   {compareResult.comparison.parallel_time_ms.toFixed(4)} ms
                 </div>
                 <div className="text-xs text-zinc-500">{compareResult.comparison.parallel_threads} threads</div>
               </div>
+              {compareResult.comparison.pthread_time_ms !== undefined && compareResult.comparison.pthread_time_ms > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">POSIX Threads</div>
+                <div className="text-2xl font-bold text-cyan-400 font-mono">
+                  {compareResult.comparison.pthread_time_ms.toFixed(4)} ms
+                </div>
+                <div className="text-xs text-zinc-500">{compareResult.comparison.pthread_threads} threads</div>
+              </div>
+              )}
+              {compareResult.comparison.mpi_time_ms !== undefined && compareResult.comparison.mpi_time_ms > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">MPI Distributed</div>
+                <div className="text-2xl font-bold text-green-400 font-mono">
+                  {compareResult.comparison.mpi_time_ms.toFixed(4)} ms
+                </div>
+                <div className="text-xs text-zinc-500">{compareResult.comparison.mpi_threads} processes</div>
+              </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+              <div>
+                <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
+                <div className={`text-4xl font-black font-mono ${speedup >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                  {speedup.toFixed(2)}x
+                </div>
+              </div>
+              {compareResult.comparison.speedup_pthread !== undefined && compareResult.comparison.speedup_pthread > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
+                <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>
+                  {compareResult.comparison.speedup_pthread.toFixed(2)}x
+                </div>
+              </div>
+              )}
+              {compareResult.comparison.speedup_mpi !== undefined && compareResult.comparison.speedup_mpi > 0 && (
+              <div>
+                <div className="text-xs text-zinc-400">Speedup (MPI)</div>
+                <div className={`text-4xl font-black font-mono ${compareResult.comparison.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
+                  {compareResult.comparison.speedup_mpi.toFixed(2)}x
+                </div>
+              </div>
+              )}
             </div>
             <div className="mt-3 pt-3 border-t border-amber-800/50 text-xs text-zinc-400 text-center">
               <span className="text-white font-semibold font-mono">{compareResult.comparison.n_pairs}</span> students considered
@@ -460,7 +602,9 @@ export default function CorrelationTab() {
           </div>
 
           {/* Side-by-side panels */}
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className={`grid md:grid-cols-2 ${
+            compareResult.mpi ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-3'
+          } gap-6`}>
             <CorrelationPanel
               result={compareResult.serial}
               borderColor="border-blue-700"
@@ -475,6 +619,24 @@ export default function CorrelationTab() {
               subject2Name={subject2}
               chartColor="#a855f7"
             />
+            {compareResult.pthread && (
+              <CorrelationPanel
+                result={compareResult.pthread}
+                borderColor="border-cyan-700"
+                subject1Name={subject1}
+                subject2Name={subject2}
+                chartColor="#06b6d4"
+              />
+            )}
+            {compareResult.mpi && (
+              <CorrelationPanel
+                result={compareResult.mpi}
+                borderColor="border-green-700"
+                subject1Name={subject1}
+                subject2Name={subject2}
+                chartColor="#22c55e"
+              />
+            )}
           </div>
         </>
       )}

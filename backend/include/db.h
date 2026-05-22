@@ -63,8 +63,8 @@ int db_remove_duplicate_students(db_connection_t *db, int *out_scores_removed);
 int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_student,
                        const char *class_filter);
 
-/* Fetch all scores as a raw double array for computation */
-double* db_get_scores_array(db_connection_t *db, int *out_count);
+/* Fetch scores as a raw double array, optionally filtered by class and subject */
+double* db_get_scores_array(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count);
 
 /* Get total count of scores */
 int db_get_scores_count(db_connection_t *db);
@@ -79,6 +79,7 @@ int   db_delete_class(db_connection_t *db, const char *name);
 int   db_create_subject(db_connection_t *db, const char *name, const char *class_name);
 char* db_get_all_subjects(db_connection_t *db);
 char* db_get_subjects_by_class(db_connection_t *db, const char *class_name);
+int   db_get_class_subject_names(db_connection_t *db, const char *class_name, char ***out_names);
 int   db_rename_subject(db_connection_t *db, const char *old_name, const char *class_name, const char *new_name);
 int   db_delete_subject(db_connection_t *db, const char *name, const char *class_name);
 
@@ -95,6 +96,7 @@ int db_get_paired_scores(db_connection_t *db,
                          const char *subject1, const char *class1,
                          const char *subject2, const char *class2,
                          score_pair_t **out_pairs, int *out_count,
+                         int *out_total_students, int *out_excluded,
                          double *out_fetch_ms);
 
 #endif /* DB_H */

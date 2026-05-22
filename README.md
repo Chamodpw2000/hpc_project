@@ -1,8 +1,8 @@
 # Score Analyzer — HPC Project
 
-A full-stack student score management and analytics platform that demonstrates **OpenMP parallel processing** versus serial computation on MongoDB data.
+A full-stack student score management and analytics platform that demonstrates **OpenMP parallel processing** and **MPI distributed-memory computing** versus serial computation on MongoDB data.
 
-- **Backend** — C (CivetWeb HTTP server, MongoDB C Driver, OpenMP)
+- **Backend** — C (CivetWeb HTTP server, MongoDB C Driver, OpenMP, OpenMPI)
 - **Frontend** — Next.js 16 / React 19 / TypeScript / Tailwind CSS
 
 ---
@@ -16,7 +16,10 @@ Browser (Next.js :3000)
     ├─ /api/subjects       → Next.js proxy → C backend :8090 /api/subjects
     └─ /analytics          → direct fetch → C backend :8090 /api/…
                                                 │
-                                           MongoDB Atlas
+                                    ┌───────────┴───────────┐
+                                    ▼                       ▼
+                               Rank 0 Master           MPI Workers
+                            (CivetWeb + Mongo)      (Ranks 1 to N-1)
 ```
 
 ### Directory layout
@@ -24,7 +27,7 @@ Browser (Next.js :3000)
 ```
 hpc_project/
 ├── backend/                      # C / CivetWeb server
-│   ├── score_analyzer_backend.c  # main – route registration, server loop
+│   ├── score_analyzer_backend.c  # main – route registration, server loop, MPI rank setup
 │   ├── db.c / include/db.h       # MongoDB CRUD helpers
 │   ├── config.c / include/config.h
 │   ├── config.env                # ← your real credentials (git-ignored)
@@ -36,10 +39,21 @@ hpc_project/
 │       ├── score_controller.c/h
 │       ├── data_controller.c/h
 │       ├── calc_engine.c/h       # OpenMP parallel sort + statistics
+│       ├── calc_mpi.c/h          # MPI distributed calculations (reductions)
+│       ├── correlation_engine.c/h # Pearson Correlation calculations (OpenMP)
+│       ├── correlation_controller.c/h # Correlation HTTP handlers
+│       ├── correlation_mpi.c/h   # MPI distributed correlation calculation
+│       ├── mpi_worker.c/h        # MPI worker daemon loop
 │       ├── health_controller.c/h
 │       └── response_helper.c/h
 │
 └── frontend/                     # Next.js app
+    ├── app/
+    │   ├── page.tsx              # Dashboard (classes + subjects)
+    │   ├── analytics/
+    │   │   ├── page.tsx          # Analytics dashboard container
+    │   │   ├── ClassAnalysisTab.tsx # Class-based subject breakdowns (compare serial/OMP/MPI)
+    │   │   └── CorrelationTab.tsx # Subject correlation analysis workspace
     ├── app/
     │   ├── page.tsx              # Dashboard (classes + subjects)
     │   ├── analytics/page.tsx    # OpenMP analytics page
@@ -62,9 +76,10 @@ hpc_project/
 | Tool | Version tested | Notes |
 |------|---------------|-------|
 | **WSL 2 + Ubuntu** | 22.04 LTS | Backend builds/runs on Linux |
-| **GCC** | ≥ 11 | `sudo apt install build-essential` |
+| **GCC / MPICC** | ≥ 11 | `sudo apt install build-essential openmpi-bin libopenmpi-dev` |
 | **libmongoc-1.0** | ≥ 1.23 | see [MongoDB C Driver](#install-mongodb-c-driver) |
 | **OpenMP** (`libgomp`) | included with GCC | — |
+| **MPI** (`OpenMPI`) | OpenMPI 4.x | for distributed computing engine |
 | **pkg-config** | any | `sudo apt install pkg-config` |
 | **Node.js** | 18 – 22 | [nodejs.org](https://nodejs.org) |
 | **npm** | ≥ 9 | bundled with Node.js |
@@ -106,22 +121,30 @@ PORT=8090
 # WSL cannot run ELF binaries from /mnt/c/ — build and run from WSL home instead:
 cp -r '/mnt/c/7 Sem/hpc_project/backend' ~/hpc_backend
 cd ~/hpc_backend
+# Build standard version
 make clean && make
+# Or build MPI version
+make clean && make mpi
 ```
 
 Expected output:
 
 ```
 gcc -o score_analyzer_backend ...
+# or
+mpicc -o score_analyzer_backend_mpi ...
 ```
 
 ### 1.3 Run
 
 ```bash
 cd ~/hpc_backend
+
+# Run local OpenMP/Serial version:
+make run-serial
+
+# Run distributed MPI version with 4 processes:
 make run
-# or directly:
-./score_analyzer_backend
 ```
 
 The server starts on **http://localhost:8090** and prints a banner of all endpoints.
@@ -139,10 +162,12 @@ curl http://localhost:8090/exit
 
 | Target | Purpose |
 |--------|---------|
-| `make` / `make all` | Build binary |
-| `make run` | Build + start server (foreground) |
-| `make test` | Start server in background |
-| `make stop` | Kill background instance |
+| `make` / `make all` | Build binary (Serial/OpenMP) |
+| `make mpi` | Build MPI binary |
+| `make run` | Build + start MPI server with 4 processes (foreground) |
+| `make run-serial` | Build + start Serial/OpenMP server (foreground) |
+| `make test` | Start MPI server in background |
+| `make stop` | Kill running server processes |
 | `make clean` | Remove build artifacts + logs |
 | `make watch` | Auto-rebuild on file change (requires `entr`) |
 
@@ -255,14 +280,21 @@ All backend endpoints are served on **http://localhost:8090**.
 | POST | `/api/students` | `{ "student_id":"S001","name":"Alice","email":"a@b.com" }` | Create student |
 | DELETE | `/api/students/{student_id}` | — | Delete student |
 
-### Analytics (OpenMP)
+### Analytics & HPC Calculation
+
+All calculate endpoints accept optional `class` and `subject` filters (e.g. `/api/calculate/mpi?class=Class+B&subject=HPC`).
 
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/seed` | `{ "num_students": 100, "scores_per_student": 10 }` | Seed random data |
 | GET | `/api/calculate/serial` | — | Serial statistics |
 | GET | `/api/calculate/parallel` | — | Parallel (OpenMP) statistics |
-| GET | `/api/calculate/compare` | — | Side-by-side comparison |
+| GET | `/api/calculate/mpi` | — | Distributed (MPI) statistics |
+| GET | `/api/calculate/compare` | — | Compare Serial vs OpenMP vs MPI performance |
+| GET | `/api/calculate/correlation/serial` | — | Pearson correlation coefficient (Serial) |
+| GET | `/api/calculate/correlation/parallel` | — | Pearson correlation coefficient (OpenMP) |
+| GET | `/api/calculate/correlation/mpi` | — | Pearson correlation coefficient (MPI) |
+| GET | `/api/calculate/correlation/compare` | — | Compare all Pearson correlation modes |
 
 ---
 
@@ -362,6 +394,18 @@ All analytics API calls from `analytics/page.tsx` go directly to `http://localho
 - Rotate `JWT_SECRET` and use a strong, random value.
 - Whitelist only specific origins in backend CORS headers.
 - Never commit `config.env` or `.env.local` with real credentials.
+
+---
+
+## 10 · MPI Worker Protocol
+
+In MPI distributed mode, the Rank 0 (Master) server broadcasts commands to wake up worker ranks (Ranks 1 to N-1) using `MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD)`. The following command protocol is used:
+
+| Code (`int`) | Constant Name | Action Taken by Workers |
+| :--- | :--- | :--- |
+| **`0`** | `MPI_CMD_SHUTDOWN` | Exits the worker daemon loop, calls `MPI_Finalize()`, and exits cleanly. |
+| **`1`** | `MPI_CMD_CALC_SCORES` | Participates in distributed statistics reduction calculations (`Scatterv`, local reductions, `Reduce`, `Gather`). |
+| **`2`** | `MPI_CMD_CALC_CORR` | Participates in distributed Pearson Correlation calculations. |
 
 ---
 

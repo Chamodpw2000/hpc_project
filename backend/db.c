@@ -28,8 +28,9 @@ static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define DB_LOCK()   pthread_mutex_lock(&db_mutex)
 #define DB_UNLOCK() pthread_mutex_unlock(&db_mutex)
 
-/* Forward declaration */
+/* Forward declarations */
 static int buf_append(char **buf, size_t *len, size_t *cap, const char *src);
+static int fetch_class_student_ids(mongoc_collection_t *col, const char *class_name, char ***out_ids, size_t *out_cap);
 
 /* Initialize MongoDB connection */
 db_connection_t* db_init(const char *connection_string, const char *db_name)
@@ -57,9 +58,9 @@ db_connection_t* db_init(const char *connection_string, const char *db_name)
 
     /* Ensure timeouts are set so stale streams don't hang forever */
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 0) == 0)
-        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 5000);
+        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SERVERSELECTIONTIMEOUTMS, 30000);
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 0) == 0)
-        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 10000);
+        mongoc_uri_set_option_as_int32(uri, MONGOC_URI_CONNECTTIMEOUTMS, 20000);
     if (mongoc_uri_get_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 0) == 0)
         mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 120000);
 
@@ -1328,7 +1329,7 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 }
 
 /* Fetch all score values as a raw double array */
-double* db_get_scores_array(db_connection_t *db, int *out_count)
+double* db_get_scores_array(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count)
 {
     *out_count = 0;
     if (!db || !db->scores_collection) {
@@ -1336,8 +1337,44 @@ double* db_get_scores_array(db_connection_t *db, int *out_count)
     }
 
     DB_LOCK();
+    char **class_student_ids = NULL;
+    size_t class_student_ids_cap = 0;
+    int class_student_ids_n = 0;
+
+    if (class_filter && class_filter[0] != '\0') {
+        class_student_ids_n = fetch_class_student_ids(db->students_collection, class_filter, &class_student_ids, &class_student_ids_cap);
+        if (class_student_ids_n <= 0) {
+            if (class_student_ids) free(class_student_ids);
+            DB_UNLOCK();
+            return NULL;
+        }
+    }
+
     /* First count documents */
     bson_t *filter = bson_new();
+    if (class_filter && class_filter[0] != '\0') {
+        bson_t in_cond, sid_arr;
+        bson_append_document_begin(filter, "student_id", -1, &in_cond);
+        bson_append_array_begin(&in_cond, "$in", -1, &sid_arr);
+        for (int i = 0; i < class_student_ids_n; i++) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", i);
+            BSON_APPEND_UTF8(&sid_arr, key, class_student_ids[i]);
+        }
+        bson_append_array_end(&in_cond, &sid_arr);
+        bson_append_document_end(filter, &in_cond);
+    }
+    if (subject_filter && subject_filter[0] != '\0') {
+        BSON_APPEND_UTF8(filter, "subject", subject_filter);
+    }
+
+    if (class_student_ids) {
+        for (int i = 0; i < class_student_ids_n; i++) {
+            free(class_student_ids[i]);
+        }
+        free(class_student_ids);
+    }
+
     bson_error_t error;
     int64_t count = mongoc_collection_count_documents(
         db->scores_collection, filter, NULL, NULL, NULL, &error);
@@ -1639,6 +1676,50 @@ char* db_get_subjects_by_class(db_connection_t *db, const char *class_name)
     return result;
 }
 
+/* Fetch list of subject names for a class as a dynamically allocated array.
+   Caller must free each string and the array itself.
+   Returns the number of subjects found. */
+int db_get_class_subject_names(db_connection_t *db, const char *class_name, char ***out_names)
+{
+    if (!db || !db->subjects_collection || !class_name) return 0;
+
+    DB_LOCK();
+    bson_t *query = BCON_NEW("class_name", class_name);
+    mongoc_cursor_t *cursor = mongoc_collection_find_with_opts(db->subjects_collection, query, NULL, NULL);
+
+    size_t cap = 16;
+    char **names = (char **)malloc(sizeof(char *) * cap);
+    int count = 0;
+    if (!names) {
+        mongoc_cursor_destroy(cursor);
+        bson_destroy(query);
+        DB_UNLOCK();
+        return 0;
+    }
+
+    const bson_t *doc;
+    while (mongoc_cursor_next(cursor, &doc)) {
+        bson_iter_t ni;
+        if (bson_iter_init_find(&ni, doc, "name") && BSON_ITER_HOLDS_UTF8(&ni)) {
+            const char *n = bson_iter_utf8(&ni, NULL);
+            if (count >= (int)cap) {
+                cap *= 2;
+                char **tmp = (char **)realloc(names, sizeof(char *) * cap);
+                if (!tmp) break;
+                names = tmp;
+            }
+            names[count++] = strdup(n);
+        }
+    }
+
+    mongoc_cursor_destroy(cursor);
+    bson_destroy(query);
+    DB_UNLOCK();
+
+    *out_names = names;
+    return count;
+}
+
 /* Delete a subject by name + class_name */
 int db_delete_subject(db_connection_t *db, const char *name, const char *class_name)
 {
@@ -1809,10 +1890,13 @@ int db_get_paired_scores(db_connection_t *db,
                          const char *subject1, const char *class1,
                          const char *subject2, const char *class2,
                          score_pair_t **out_pairs, int *out_count,
+                         int *out_total_students, int *out_excluded,
                          double *out_fetch_ms)
 {
     *out_pairs = NULL;
     *out_count = 0;
+    if (out_total_students) *out_total_students = 0;
+    if (out_excluded)       *out_excluded = 0;
     if (out_fetch_ms) *out_fetch_ms = 0.0;
 
     if (!db || !db->scores_collection || !db->students_collection) return 0;
@@ -1867,6 +1951,25 @@ int db_get_paired_scores(db_connection_t *db,
             *out_count = k;
         }
     }
+
+    int total_students = n1;
+    if (!same_class && n1 > 0 && n2 > 0) {
+        for (int i = 0; i < n2; i++) {
+            int found = 0;
+            for (int j = 0; j < n1; j++) {
+                if (strcmp(ids2[i], ids1[j]) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) total_students++;
+        }
+    } else if (!same_class) {
+        total_students = n1 + n2;
+    }
+
+    if (out_total_students) *out_total_students = total_students;
+    if (out_excluded)       *out_excluded = total_students - *out_count;
 
     printf("[corr] '%s'(%s) vs '%s'(%s): %d pairs\n",
            subject1, class1, subject2, class2, *out_count);
