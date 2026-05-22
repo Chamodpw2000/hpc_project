@@ -66,6 +66,8 @@ interface AllSubjectsResult {
   pthread_threads: number;
   subjects: SubjectLineResult[];
   timing: {
+    fetch_phase_ms: number;
+    calc_phase_ms: number;
     serial_total_ms: number;
     parallel_total_ms: number;
     pthread_total_ms: number;
@@ -743,9 +745,30 @@ export default function CorrelationTab() {
                   One vs All — {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name}
                 </div>
                 <div className="text-xs text-zinc-400 text-center mb-4">
-                  {allSubjectsResult.subjects.length} subjects computed ·
+                  {allSubjectsResult.subjects.length} subjects ·
                   OpenMP: {allSubjectsResult.openmp_threads} threads ·
                   Pthreads: {allSubjectsResult.pthread_threads} threads
+                </div>
+                {/* Parallel fetch vs calc phase timing */}
+                <div className="grid grid-cols-2 gap-3 mb-4 text-center">
+                  <div className="bg-zinc-800/60 rounded-lg p-3">
+                    <div className="text-xs text-zinc-400 mb-1">Parallel Fetch Phase</div>
+                    <div className="text-xl font-bold text-indigo-300 font-mono">
+                      {allSubjectsResult.timing.fetch_phase_ms.toFixed(1)} ms
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-0.5">
+                      {allSubjectsResult.subjects.length} subjects fetched concurrently
+                    </div>
+                  </div>
+                  <div className="bg-zinc-800/60 rounded-lg p-3">
+                    <div className="text-xs text-zinc-400 mb-1">Calculation Phase</div>
+                    <div className="text-xl font-bold text-amber-300 font-mono">
+                      {allSubjectsResult.timing.calc_phase_ms.toFixed(1)} ms
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-0.5">
+                      Serial + OpenMP + Pthreads per subject
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                   <div>
