@@ -350,11 +350,7 @@ export default function ClassAnalysisTab() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="bg-zinc-800/50 p-6 rounded-2xl border border-zinc-700/50">
         <h2 className="text-xl font-bold text-white mb-6 flex items-center">
-          <span className="bg-blue-500/20 text-blue-400 p-2 rounded-lg mr-3">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          </span>
+         
           1. Select Class
         </h2>
 
@@ -378,11 +374,7 @@ export default function ClassAnalysisTab() {
 
       <div className="bg-zinc-800/50 p-6 rounded-2xl border border-zinc-700/50">
         <h2 className="text-xl font-bold text-white mb-6 flex items-center">
-          <span className="bg-purple-500/20 text-purple-400 p-2 rounded-lg mr-3">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </span>
+      
           2. Calculate Subject Statistics
         </h2>
 
@@ -474,7 +466,7 @@ export default function ClassAnalysisTab() {
               disabled={!canRun}
               className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-semibold transition-colors text-white"
             >
-              {loading === "compare_shared" ? "Running..." : "Compare All Shared"}
+              {loading === "compare_shared" ? "Running..." : "Compare All (Fast)"}
             </button>
             <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
           </div>
