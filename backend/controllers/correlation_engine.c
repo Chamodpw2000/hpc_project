@@ -18,9 +18,6 @@
 #include <math.h>
 #include <omp.h>
 #include <stdio.h>
-#include <time.h>
-
-#define GRAPH_SAMPLE_SIZE 1000
 
 corr_result_t run_corr_serial(const score_pair_t *pairs, int n)
 {
@@ -203,35 +200,12 @@ char* format_corr_json(const corr_result_t *r, const char *label,
                        const score_pair_t *points, int npts,
                        int total_students, int excluded)
 {
-    /* ── Reservoir sampling (Algorithm R) ──────────────────────────────────
-     * All npts pairs are used for the Pearson calculation above.
-     * For the scatter graph we only send at most GRAPH_SAMPLE_SIZE points
-     * so the frontend payload stays small regardless of dataset size.
-     * n_pairs in the JSON still reflects the true count used for statistics. */
-    int sample_n = npts < GRAPH_SAMPLE_SIZE ? npts : GRAPH_SAMPLE_SIZE;
+    (void)points; (void)npts;   /* data points no longer sent to client */
 
-    int *idx = (int *)malloc((size_t)sample_n * sizeof(int));
-    if (!idx) return NULL;
+    char *buf = (char *)malloc(512);
+    if (!buf) return NULL;
 
-    /* Fill reservoir with the first sample_n indices */
-    for (int i = 0; i < sample_n; i++) idx[i] = i;
-
-    if (npts > GRAPH_SAMPLE_SIZE) {
-        /* For each remaining element, replace a reservoir slot with
-         * probability GRAPH_SAMPLE_SIZE / (i+1) — gives uniform sample */
-        unsigned int seed = (unsigned int)time(NULL) ^ (unsigned int)(uintptr_t)points;
-        for (int i = GRAPH_SAMPLE_SIZE; i < npts; i++) {
-            int j = (int)((unsigned long)rand_r(&seed) % (unsigned long)(i + 1));
-            if (j < GRAPH_SAMPLE_SIZE) idx[j] = i;
-        }
-    }
-
-    /* ~400 bytes fixed + ~30 bytes per sampled point + best_fit fields */
-    size_t buf_size = 640 + (size_t)sample_n * 32;
-    char  *buf      = (char *)malloc(buf_size);
-    if (!buf) { free(idx); return NULL; }
-
-    int pos = snprintf(buf, buf_size,
+    snprintf(buf, 512,
         "{\n"
         "    \"mode\": \"%s\",\n"
         "    \"threads_used\": %d,\n"
@@ -241,37 +215,20 @@ char* format_corr_json(const corr_result_t *r, const char *label,
         "    \"elapsed_ms\": %.4f,\n"
         "    \"db_fetch_ms\": %.4f,\n"
         "    \"correlation_coefficient\": %.6f,\n"
-        "    \"data_points\": [",
+        "    \"best_fit_slope\": %.6f,\n"
+        "    \"best_fit_intercept\": %.6f\n"
+        "  }",
         label,
         r->threads_used,
-        r->n_pairs,          /* true count, not the sample size */
+        r->n_pairs,
         total_students,
         excluded,
         r->elapsed_ms,
         db_fetch_ms,
-        r->correlation_coefficient);
+        r->correlation_coefficient,
+        r->best_fit_slope,
+        r->best_fit_intercept);
 
-    if (pos < 0 || (size_t)pos >= buf_size) { free(buf); free(idx); return NULL; }
-
-    for (int i = 0; i < sample_n; i++) {
-        int written = snprintf(buf + pos, buf_size - (size_t)pos,
-            "%s{\"x\":%.2f,\"y\":%.2f}",
-            (i > 0 ? "," : ""),
-            points[idx[i]].x, points[idx[i]].y);
-        if (written < 0 || (size_t)pos + (size_t)written >= buf_size - 8) break;
-        pos += written;
-    }
-
-    int tail = snprintf(buf + pos, buf_size - (size_t)pos,
-        "],\n"
-        "    \"best_fit_slope\": %.6f,\n"
-        "    \"best_fit_intercept\": %.6f\n"
-        "  }",
-        r->best_fit_slope, r->best_fit_intercept);
-    if (tail > 0) pos += tail;
-    (void)pos;
-
-    free(idx);
     return buf;
 }
 

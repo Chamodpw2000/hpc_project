@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect } from "react";
 import {
-  ComposedChart, Scatter, Line, LineChart, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer,
+  Line, LineChart, XAxis, YAxis,
+  CartesianGrid, ResponsiveContainer,
 } from "recharts";
 
 interface SubjectOption { name: string; class_name: string; }
-interface ScatterPoint  { x: number; y: number; }
 interface CorrelationResult {
   correlation_coefficient: number;
   elapsed_ms: number;
@@ -15,9 +14,8 @@ interface CorrelationResult {
   n_pairs: number;
   total_students?: number;
   excluded?: number;
-  data_points: ScatterPoint[];
-  best_fit_slope?: number;
-  best_fit_intercept?: number;
+  best_fit_slope: number;
+  best_fit_intercept: number;
 }
 interface CorrelationCompare {
   serial: CorrelationResult;
@@ -97,22 +95,6 @@ function directionLabel(r: number): string {
   return "No";
 }
 
-function trendLinePoints(pts: ScatterPoint[]): { x: number; y: number }[] {
-  const n = pts.length;
-  if (n < 2) return [];
-  const sumX  = pts.reduce((a, p) => a + p.x, 0);
-  const sumY  = pts.reduce((a, p) => a + p.y, 0);
-  const sumXY = pts.reduce((a, p) => a + p.x * p.y, 0);
-  const sumX2 = pts.reduce((a, p) => a + p.x * p.x, 0);
-  const slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  const intercept = (sumY - slope * sumX) / n;
-  const minX = Math.min(...pts.map(p => p.x));
-  const maxX = Math.max(...pts.map(p => p.x));
-  return [
-    { x: minX, y: slope * minX + intercept },
-    { x: maxX, y: slope * maxX + intercept },
-  ];
-}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -163,55 +145,6 @@ function BestFitLineChart({ slope, intercept, color, refSubject, subject }: Read
   );
 }
 
-function CorrelationChart({ points, color, subject1Name, subject2Name }: Readonly<{
-  points: ScatterPoint[];
-  color: string;
-  subject1Name: string;
-  subject2Name: string;
-}>) {
-  const trend = trendLinePoints(points);
-  return (
-    <ResponsiveContainer width="100%" height={260}>
-      <ComposedChart margin={{ top: 10, right: 10, bottom: 35, left: 10 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
-        <XAxis
-          dataKey="x"
-          type="number"
-          domain={[0, 100]}
-          name={subject1Name}
-          label={{ value: subject1Name, position: "insideBottom", offset: -20, fill: "#a1a1aa", fontSize: 11 }}
-          tick={{ fill: "#71717a", fontSize: 11 }}
-          tickLine={false}
-        />
-        <YAxis
-          dataKey="y"
-          type="number"
-          domain={[0, 100]}
-          name={subject2Name}
-          label={{ value: subject2Name, angle: -90, position: "insideLeft", fill: "#a1a1aa", fontSize: 11 }}
-          tick={{ fill: "#71717a", fontSize: 11 }}
-          tickLine={false}
-          axisLine={false}
-        />
-        <Tooltip
-          cursor={{ strokeDasharray: "3 3", stroke: "#52525b" }}
-          contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
-        />
-        <Scatter data={points} fill={color} opacity={0.85} />
-        <Line
-          data={trend}
-          dataKey="y"
-          stroke={color}
-          strokeWidth={1.5}
-          strokeDasharray="6 3"
-          dot={false}
-          activeDot={false}
-          legendType="none"
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
-  );
-}
 
 function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, chartColor }: Readonly<{
   result: CorrelationResult;
@@ -293,13 +226,14 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
 
       <div>
         <div className="text-xs text-zinc-400 mb-2 font-semibold uppercase tracking-wider">
-          Score Distribution
+          Best-Fit Line
         </div>
-        <CorrelationChart
-          points={result.data_points}
+        <BestFitLineChart
+          slope={result.best_fit_slope}
+          intercept={result.best_fit_intercept}
           color={chartColor}
-          subject1Name={subject1Name}
-          subject2Name={subject2Name}
+          refSubject={subject1Name}
+          subject={subject2Name}
         />
       </div>
     </div>
