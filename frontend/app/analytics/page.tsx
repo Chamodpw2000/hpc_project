@@ -7,15 +7,16 @@ import ClassAnalysisTab from "./ClassAnalysisTab";
 const API = "http://localhost:8090";
 
 interface GradeDistribution {
-  A_90_100: number;
-  B_80_89: number;
-  C_70_79: number;
-  D_60_69: number;
-  F_below_60: number;
+  A_90_100?: number;
+  B_80_89?: number;
+  C_70_79?: number;
+  D_60_69?: number;
+  F_below_60?: number;
+  [key: string]: number | undefined;
 }
 
 interface Statistics {
-  sum: number;
+  sum?: number;
   mean: number;
   median: number;
   variance: number;
@@ -29,7 +30,7 @@ interface CalcResult {
   threads_used: number;
   scores_count: number;
   elapsed_ms: number;
-  sort_time_ms: number;
+  sort_time_ms?: number;
   db_fetch_ms: number;
   statistics: Statistics;
   grade_distribution: GradeDistribution;
@@ -93,8 +94,9 @@ function GradeBar({ grade, count, total, color }: Readonly<{ grade: string; coun
 }
 
 export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean }>) {
-  const total = result.grade_distribution.A_90_100 + result.grade_distribution.B_80_89 +
-    result.grade_distribution.C_70_79 + result.grade_distribution.D_60_69 + result.grade_distribution.F_below_60;
+  const gd = result.grade_distribution;
+  const total = (gd.A_90_100 ?? 0) + (gd.B_80_89 ?? 0) +
+    (gd.C_70_79 ?? 0) + (gd.D_60_69 ?? 0) + (gd.F_below_60 ?? 0);
 
   return (
     <div className={`border ${color} rounded-xl p-5 bg-zinc-900/50`}>
@@ -118,7 +120,7 @@ export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{
           </div>
           <div>
             <div className="text-xs text-zinc-500">Sort</div>
-            <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms)}</div>
+            <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms ?? 0)}</div>
           </div>
         </div>
         {totalMs != null && !hideRounding && (
@@ -140,11 +142,11 @@ export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{
 
       <div className="space-y-1.5">
         <div className="text-xs text-zinc-400 mb-2 font-semibold uppercase tracking-wider">Grade Distribution</div>
-        <GradeBar grade="A" count={result.grade_distribution.A_90_100} total={total} color="bg-emerald-500" />
-        <GradeBar grade="B" count={result.grade_distribution.B_80_89} total={total} color="bg-blue-500" />
-        <GradeBar grade="C" count={result.grade_distribution.C_70_79} total={total} color="bg-yellow-500" />
-        <GradeBar grade="D" count={result.grade_distribution.D_60_69} total={total} color="bg-orange-500" />
-        <GradeBar grade="F" count={result.grade_distribution.F_below_60} total={total} color="bg-red-500" />
+        <GradeBar grade="A" count={gd.A_90_100  ?? 0} total={total} color="bg-emerald-500" />
+        <GradeBar grade="B" count={gd.B_80_89   ?? 0} total={total} color="bg-blue-500" />
+        <GradeBar grade="C" count={gd.C_70_79   ?? 0} total={total} color="bg-yellow-500" />
+        <GradeBar grade="D" count={gd.D_60_69   ?? 0} total={total} color="bg-orange-500" />
+        <GradeBar grade="F" count={gd.F_below_60 ?? 0} total={total} color="bg-red-500" />
       </div>
     </div>
   );
