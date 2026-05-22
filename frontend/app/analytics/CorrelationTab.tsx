@@ -79,6 +79,8 @@ interface AllSubjectsResult {
   };
 }
 
+type AllDisplayMode = "serial" | "parallel" | "pthread" | "mpi" | "compare" | null;
+
 const API = "http://localhost:8090";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -242,6 +244,102 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
   );
 }
 
+// ── One vs All — subject card for a single method (individual run mode) ───────
+
+const METHOD_CFG = {
+  serial:   { border: "border-blue-700",   chart: "#3b82f6", name: "Serial",            unit: "thread",    unitPlural: "threads"   },
+  parallel: { border: "border-purple-700", chart: "#a855f7", name: "Parallel (OpenMP)", unit: "thread",    unitPlural: "threads"   },
+  pthread:  { border: "border-cyan-700",   chart: "#06b6d4", name: "POSIX Threads",     unit: "thread",    unitPlural: "threads"   },
+  mpi:      { border: "border-green-700",  chart: "#22c55e", name: "MPI Distributed",   unit: "process",   unitPlural: "processes" },
+} as const;
+
+function SubjectResultCard({ s, method, refSubject }: Readonly<{
+  s: SubjectLineResult;
+  method: Exclude<AllDisplayMode, "compare" | null>;
+  refSubject: string;
+}>) {
+  const entry = method === "mpi" ? s.mpi
+              : method === "parallel" ? s.parallel
+              : method === "pthread"  ? s.pthread
+              : s.serial;
+  if (!entry) return null;
+  const { label, color: labelColor } = correlationLabel(entry.r);
+  const cfg = METHOD_CFG[method];
+  const unitStr = entry.threads_used === 1 ? cfg.unit : cfg.unitPlural;
+
+  return (
+    <div className={`border ${cfg.border} rounded-xl p-5 bg-zinc-900/50`}>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-white text-sm truncate">{s.subject}</h3>
+        <span className="text-xs bg-zinc-800 text-zinc-300 px-2 py-1 rounded font-mono shrink-0 ml-2">
+          {entry.threads_used} {unitStr}
+        </span>
+      </div>
+
+      <div className="mb-3 p-3 bg-zinc-800/50 rounded-xl text-center">
+        <div className="text-xs text-zinc-400 uppercase tracking-wider font-semibold mb-1">Pearson r</div>
+        <div className="text-3xl font-black text-white font-mono">{entry.r.toFixed(4)}</div>
+        <div className={`text-xs font-semibold mt-1 ${labelColor}`}>{label} · {directionLabel(entry.r)}</div>
+        <div className="text-xs text-zinc-500 mt-1">{s.n_pairs} pairs</div>
+      </div>
+
+      <BestFitLineChart slope={entry.slope} intercept={entry.intercept} color={cfg.chart} refSubject={refSubject} subject={s.subject} />
+
+      <div className="mt-2 pt-2 border-t border-zinc-800 flex items-center justify-between text-xs">
+        <span className="text-zinc-400">Calc time</span>
+        <span className="font-mono text-white">{entry.elapsed_ms.toFixed(2)} ms</span>
+      </div>
+
+      {entry.speedup !== undefined && entry.speedup > 0 && (
+        <div className="mt-1 text-center">
+          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${entry.speedup >= 1 ? "bg-emerald-900/40 text-emerald-300" : "bg-red-900/40 text-red-400"}`}>
+            {entry.speedup.toFixed(2)}x speedup
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── One vs All — per-method card inside a compare subject section (no timing) ─
+
+function CompareMethodCard({ entry, method, nPairs, subject, refSubject }: Readonly<{
+  entry: MethodEntry;
+  method: Exclude<AllDisplayMode, "compare" | null>;
+  nPairs: number;
+  subject: string;
+  refSubject: string;
+}>) {
+  const { label, color: labelColor } = correlationLabel(entry.r);
+  const cfg = METHOD_CFG[method];
+  const unitStr = entry.threads_used === 1 ? cfg.unit : cfg.unitPlural;
+
+  return (
+    <div className={`border ${cfg.border} rounded-xl p-4 bg-zinc-900/40`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider">{cfg.name}</span>
+        <span className="text-xs text-zinc-500 font-mono">{entry.threads_used} {unitStr}</span>
+      </div>
+
+      <div className="mb-2 p-2 bg-zinc-800/50 rounded-lg text-center">
+        <div className="text-2xl font-black font-mono text-white">{entry.r.toFixed(4)}</div>
+        <div className={`text-xs font-semibold mt-0.5 ${labelColor}`}>{label} · {directionLabel(entry.r)}</div>
+        <div className="text-xs text-zinc-500 mt-0.5">{nPairs} pairs</div>
+      </div>
+
+      <BestFitLineChart slope={entry.slope} intercept={entry.intercept} color={cfg.chart} refSubject={refSubject} subject={subject} />
+
+      {entry.speedup !== undefined && entry.speedup > 0 && (
+        <div className="mt-1 text-center">
+          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${entry.speedup >= 1 ? "bg-emerald-900/40 text-emerald-300" : "bg-red-900/40 text-red-400"}`}>
+            {entry.speedup.toFixed(2)}x
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 const SELECT_CLS =
@@ -280,6 +378,7 @@ export default function CorrelationTab() {
   const [mpiResult, setMpiResult]                 = useState<CorrelationResult | null>(null);
   const [compareResult, setCompareResult]         = useState<CorrelationCompare | null>(null);
   const [allSubjectsResult, setAllSubjectsResult] = useState<AllSubjectsResult | null>(null);
+  const [allDisplayMode, setAllDisplayMode]       = useState<AllDisplayMode>(null);
 
   // ── Fetch classes on mount ──
   useEffect(() => {
@@ -402,8 +501,6 @@ export default function CorrelationTab() {
       const base = `${API}/api/calculate/correlation`;
       const p    = buildParams();
 
-      // All requests start simultaneously — DB fetches run in parallel on the server
-      // (prepare_pairs runs before calc_lock), calculations then queue at the lock.
       const [sJson, parJson, ptJson, mpiJson] = await Promise.all([
         fetch(`${base}/serial?${p}`)                              .then(r => r.json()),
         fetch(`${base}/parallel?${p}&threads=${compareThreads}`)  .then(r => r.json()),
@@ -450,9 +547,10 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
-  async function runAllSubjects() {
+  async function runAllSubjects(displayMode: Exclude<AllDisplayMode, null> = "compare") {
     if (!selectedClass || !refSubject) return;
     setLoading("all"); setError(null); setAllSubjectsResult(null);
+    setAllDisplayMode(displayMode);
     try {
       const params = new URLSearchParams({
         class: selectedClass,
@@ -471,9 +569,12 @@ export default function CorrelationTab() {
     setLoading(null);
   }
 
-  const canRun = !loading && !!subject1 && !!subject2;
+  const canRun    = !loading && !!subject1 && !!subject2;
   const canRunAll = !loading && !!selectedClass && !!refSubject;
-  const speedup = compareResult ? compareResult.comparison.speedup : 0;
+  const speedup   = compareResult ? compareResult.comparison.speedup : 0;
+
+  // Determine which button shows loading spinner in One vs All
+  const allRunning = loading === "all" ? allDisplayMode : null;
 
   return (
     <>
@@ -628,13 +729,13 @@ export default function CorrelationTab() {
             <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 mb-6 text-red-400">{error}</div>
           )}
 
-          {/* Individual Results */}
+          {/* Individual Results — max 3 per row */}
           {(serialResult || parallelResult || pthreadResult || mpiResult) && !compareResult && (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-              {serialResult && <CorrelationPanel result={serialResult} borderColor="border-blue-700" subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />}
+              {serialResult   && <CorrelationPanel result={serialResult}   borderColor="border-blue-700"   subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />}
               {parallelResult && <CorrelationPanel result={parallelResult} borderColor="border-purple-700" subject1Name={subject1} subject2Name={subject2} chartColor="#a855f7" />}
-              {pthreadResult && <CorrelationPanel result={pthreadResult} borderColor="border-cyan-700" subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
-              {mpiResult && <CorrelationPanel result={mpiResult} borderColor="border-green-700" subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
+              {pthreadResult  && <CorrelationPanel result={pthreadResult}  borderColor="border-cyan-700"   subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
+              {mpiResult      && <CorrelationPanel result={mpiResult}      borderColor="border-green-700"  subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
             </div>
           )}
 
@@ -692,11 +793,12 @@ export default function CorrelationTab() {
                 </div>
               </div>
 
-              <div className={`grid md:grid-cols-2 ${compareResult.mpi ? 'lg:grid-cols-3 xl:grid-cols-4' : 'lg:grid-cols-3'} gap-6`}>
-                <CorrelationPanel result={compareResult.serial} borderColor="border-blue-700" subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />
+              {/* Max 3 per row */}
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <CorrelationPanel result={compareResult.serial}   borderColor="border-blue-700"   subject1Name={subject1} subject2Name={subject2} chartColor="#3b82f6" />
                 <CorrelationPanel result={compareResult.parallel} borderColor="border-purple-700" subject1Name={subject1} subject2Name={subject2} chartColor="#a855f7" />
-                {compareResult.pthread && <CorrelationPanel result={compareResult.pthread} borderColor="border-cyan-700" subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
-                {compareResult.mpi && <CorrelationPanel result={compareResult.mpi} borderColor="border-green-700" subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
+                {compareResult.pthread && <CorrelationPanel result={compareResult.pthread} borderColor="border-cyan-700"  subject1Name={subject1} subject2Name={subject2} chartColor="#06b6d4" />}
+                {compareResult.mpi     && <CorrelationPanel result={compareResult.mpi}    borderColor="border-green-700" subject1Name={subject1} subject2Name={subject2} chartColor="#22c55e" />}
               </div>
             </>
           )}
@@ -706,11 +808,11 @@ export default function CorrelationTab() {
       {/* ── ONE VS ALL MODE ── */}
       {mode === "all" && (
         <>
-          {/* Setup */}
+          {/* 1. Select Reference Subject */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
             <h2 className="text-lg font-semibold mb-4">1. Select Reference Subject</h2>
             <p className="text-sm text-zinc-400 mb-4">
-              Pick a class and a reference subject. The backend will compute correlation of every other subject against it in one call.
+              Pick a class and a reference subject. The backend computes correlation of every other subject against it.
             </p>
 
             <div className="flex flex-wrap gap-4">
@@ -744,54 +846,86 @@ export default function CorrelationTab() {
             </div>
           </div>
 
-          {/* Run button */}
+          {/* 2. Run Correlation — similar layout to Pair Analysis */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4">2. Run One vs All — All Methods</h2>
-            <p className="text-xs text-zinc-500 mb-3">Runs Serial (1 thread), OpenMP, Pthreads and MPI (if enabled) for every subject in the class.</p>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={256}
-                  value={allOpenmpThreads}
-                  onChange={e => setAllOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+            <h2 className="text-lg font-semibold mb-4">2. Run Correlation</h2>
+            <div className="space-y-3">
+              {/* Row 1: Serial | MPI Processes | Run MPI */}
+              <div className="flex flex-wrap gap-3 items-end">
+                <button
+                  onClick={() => runAllSubjects("serial")}
                   disabled={!canRunAll}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={256}
-                  value={allPthreadThreads}
-                  onChange={e => setAllPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+                >
+                  {allRunning === "serial" ? "Running..." : "Run Serial"}
+                </button>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
+                  <input
+                    type="number" min={1} max={64} value={allMpiProcesses}
+                    onChange={e => setAllMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRunAll}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  onClick={() => runAllSubjects("mpi")}
                   disabled={!canRunAll}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-                />
+                  className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+                >
+                  {allRunning === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+                </button>
               </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={64}
-                  value={allMpiProcesses}
-                  onChange={e => setAllMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
+
+              {/* Row 2: OpenMP Threads | Run OpenMP | Pthreads | Run Pthreads */}
+              <div className="flex flex-wrap gap-4 items-end">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
+                  <input
+                    type="number" min={1} max={256} value={allOpenmpThreads}
+                    onChange={e => setAllOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRunAll}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  onClick={() => runAllSubjects("parallel")}
                   disabled={!canRunAll}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-                />
+                  className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+                >
+                  {allRunning === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
+                </button>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
+                  <input
+                    type="number" min={1} max={256} value={allPthreadThreads}
+                    onChange={e => setAllPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={!canRunAll}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                  />
+                </div>
+                <button
+                  onClick={() => runAllSubjects("pthread")}
+                  disabled={!canRunAll}
+                  className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+                >
+                  {allRunning === "pthread" ? "Running..." : "Run Pthreads"}
+                </button>
               </div>
-              <button
-                onClick={runAllSubjects}
-                disabled={!canRunAll}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
-              >
-                {loading === "all" ? "Calculating..." : `Correlate All vs ${refSubject || "..."}`}
-              </button>
+
+              {/* Row 3: Compare All */}
+              <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
+                <button
+                  onClick={() => runAllSubjects("compare")}
+                  disabled={!canRunAll}
+                  className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+                >
+                  {allRunning === "compare" ? "Comparing..." : "Compare All"}
+                </button>
+                <span className="text-xs text-zinc-500 self-end pb-2">
+                  Runs Serial + OpenMP + Pthreads + MPI for every subject using the thread counts above
+                </span>
+              </div>
             </div>
           </div>
 
@@ -800,159 +934,226 @@ export default function CorrelationTab() {
             <div className="bg-red-900/30 border border-red-800 rounded-xl p-4 mb-6 text-red-400">{error}</div>
           )}
 
-          {/* Results */}
-          {allSubjectsResult && (
-            <>
-              {/* Overall speedup banner */}
-              <div className="bg-linear-to-r from-indigo-900/40 to-indigo-800/20 border border-indigo-700 rounded-xl p-6 mb-6">
-                <div className="text-sm text-indigo-300 mb-1 uppercase tracking-widest font-semibold text-center">
-                  One vs All — {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name}
-                </div>
-                <div className="text-xs text-zinc-400 text-center mb-4">
-                  {allSubjectsResult.subjects.length} subjects ·
-                  OpenMP: {allSubjectsResult.openmp_threads} threads ·
-                  Pthreads: {allSubjectsResult.pthread_threads} threads
-                </div>
-                {/* Parallel fetch vs calc phase timing */}
-                <div className="grid grid-cols-2 gap-3 mb-4 text-center">
-                  <div className="bg-zinc-800/60 rounded-lg p-3">
-                    <div className="text-xs text-zinc-400 mb-1">Parallel Fetch Phase</div>
-                    <div className="text-xl font-bold text-indigo-300 font-mono">
-                      {allSubjectsResult.timing.fetch_phase_ms.toFixed(1)} ms
-                    </div>
-                    <div className="text-xs text-zinc-500 mt-0.5">
-                      {allSubjectsResult.subjects.length} subjects fetched concurrently
-                    </div>
+          {/* ── Results: individual method mode ── */}
+          {allSubjectsResult && allDisplayMode && allDisplayMode !== "compare" && (() => {
+            const t   = allSubjectsResult.timing;
+            const methodTotalMs =
+              allDisplayMode === "serial"   ? t.serial_total_ms   :
+              allDisplayMode === "parallel" ? t.parallel_total_ms :
+              allDisplayMode === "pthread"  ? t.pthread_total_ms  : t.mpi_total_ms;
+            const speedupVal =
+              allDisplayMode === "serial"   ? null :
+              allDisplayMode === "parallel" ? t.speedup_parallel :
+              allDisplayMode === "pthread"  ? t.speedup_pthread  : t.speedup_mpi;
+            const cfg = METHOD_CFG[allDisplayMode];
+            const bannerBorder =
+              allDisplayMode === "serial"   ? "border-blue-700"   :
+              allDisplayMode === "parallel" ? "border-purple-700" :
+              allDisplayMode === "pthread"  ? "border-cyan-700"   : "border-green-700";
+            const bannerBg =
+              allDisplayMode === "serial"   ? "from-blue-900/30 to-blue-800/10"     :
+              allDisplayMode === "parallel" ? "from-purple-900/30 to-purple-800/10" :
+              allDisplayMode === "pthread"  ? "from-cyan-900/30 to-cyan-800/10"     :
+              "from-green-900/30 to-green-800/10";
+            const timeColor =
+              allDisplayMode === "serial"   ? "text-blue-400"   :
+              allDisplayMode === "parallel" ? "text-purple-400" :
+              allDisplayMode === "pthread"  ? "text-cyan-400"   : "text-green-400";
+
+            return (
+              <>
+                {/* Summary banner */}
+                <div className={`bg-linear-to-r ${bannerBg} border ${bannerBorder} rounded-xl p-6 mb-6`}>
+                  <div className={`text-sm font-semibold uppercase tracking-widest mb-1 text-center ${timeColor}`}>
+                    {cfg.name} — One vs All
                   </div>
-                  <div className="bg-zinc-800/60 rounded-lg p-3">
-                    <div className="text-xs text-zinc-400 mb-1">Calculation Phase</div>
-                    <div className="text-xl font-bold text-amber-300 font-mono">
-                      {allSubjectsResult.timing.calc_phase_ms.toFixed(1)} ms
-                    </div>
-                    <div className="text-xs text-zinc-500 mt-0.5">
-                      Serial + OpenMP + Pthreads per subject
-                    </div>
+                  <div className="text-xs text-zinc-400 text-center mb-4">
+                    {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name} ·{" "}
+                    {allSubjectsResult.subjects.length} subjects
                   </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                  <div>
-                    <div className="text-xs text-zinc-400">Total Serial</div>
-                    <div className="text-xl font-bold text-blue-400 font-mono">{allSubjectsResult.timing.serial_total_ms.toFixed(1)} ms</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-400">Total OpenMP</div>
-                    <div className="text-xl font-bold text-purple-400 font-mono">{allSubjectsResult.timing.parallel_total_ms.toFixed(1)} ms</div>
-                    <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_parallel >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                      {allSubjectsResult.timing.speedup_parallel.toFixed(2)}x
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-zinc-400">Total Pthreads</div>
-                    <div className="text-xl font-bold text-cyan-400 font-mono">{allSubjectsResult.timing.pthread_total_ms.toFixed(1)} ms</div>
-                    <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_pthread >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                      {allSubjectsResult.timing.speedup_pthread.toFixed(2)}x
-                    </div>
-                  </div>
-                  {allSubjectsResult.timing.mpi_total_ms > 0 && (
-                    <div>
-                      <div className="text-xs text-zinc-400">Total MPI</div>
-                      <div className="text-xl font-bold text-green-400 font-mono">{allSubjectsResult.timing.mpi_total_ms.toFixed(1)} ms</div>
-                      <div className={`text-xs font-semibold font-mono mt-1 ${allSubjectsResult.timing.speedup_mpi >= 1 ? "text-emerald-400" : "text-red-400"}`}>
-                        {allSubjectsResult.timing.speedup_mpi.toFixed(2)}x
+                  <div className="flex flex-wrap justify-center gap-8">
+                    <div className="text-center">
+                      <div className="text-xs text-zinc-400 mb-1">Total Calc Time</div>
+                      <div className={`text-3xl font-black font-mono ${timeColor}`}>
+                        {methodTotalMs.toFixed(2)} ms
                       </div>
                     </div>
+                    {speedupVal !== null && speedupVal !== undefined && speedupVal > 0 && (
+                      <div className="text-center">
+                        <div className="text-xs text-zinc-400 mb-1">Speedup vs Serial</div>
+                        <div className={`text-3xl font-black font-mono ${speedupVal >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                          {speedupVal.toFixed(2)}x
+                        </div>
+                      </div>
+                    )}
+                    <div className="text-center">
+                      <div className="text-xs text-zinc-400 mb-1">DB Fetch</div>
+                      <div className="text-3xl font-black font-mono text-zinc-300">
+                        {t.fetch_phase_ms.toFixed(1)} ms
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Subject cards — 3 per row */}
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {allSubjectsResult.subjects.map(s =>
+                    (allDisplayMode === "mpi" && !s.mpi) ? null : (
+                      <SubjectResultCard
+                        key={s.subject}
+                        s={s}
+                        method={allDisplayMode}
+                        refSubject={allSubjectsResult.reference_subject}
+                      />
+                    )
                   )}
                 </div>
-              </div>
+              </>
+            );
+          })()}
 
-              {/* Subject cards grid */}
-              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {allSubjectsResult.subjects.map((s, i) => {
-                  const colors = ["#3b82f6", "#a855f7", "#06b6d4", "#22c55e", "#f59e0b", "#ec4899", "#8b5cf6"];
-                  const color = colors[i % colors.length];
+          {/* ── Results: compare mode ── */}
+          {allSubjectsResult && allDisplayMode === "compare" && (() => {
+            const t = allSubjectsResult.timing;
+            const hasMpi = t.mpi_total_ms > 0;
+
+            return (
+              <>
+                {/* Comparison banner — aggregate totals only, similar to pair compare */}
+                <div className="bg-linear-to-r from-amber-900/40 to-amber-800/20 border border-amber-700 rounded-xl p-6 mb-8">
+                  <div className="text-sm text-amber-400 mb-1 uppercase tracking-widest font-semibold text-center">
+                    Performance Comparison — One vs All
+                  </div>
+                  <div className="text-xs text-zinc-400 text-center mb-4">
+                    {allSubjectsResult.reference_subject} in {allSubjectsResult.class_name} ·{" "}
+                    {allSubjectsResult.subjects.length} subjects ·
+                    OpenMP: {allSubjectsResult.openmp_threads} threads ·
+                    Pthreads: {allSubjectsResult.pthread_threads} threads
+                    {hasMpi ? ` · MPI: ${allMpiProcesses} processes` : ""}
+                  </div>
+
+                  {/* Total times row */}
+                  <div className={`grid grid-cols-2 ${hasMpi ? "md:grid-cols-4" : "md:grid-cols-3"} gap-4 text-center mb-4`}>
+                    <div>
+                      <div className="text-xs text-zinc-400">Total Serial</div>
+                      <div className="text-2xl font-bold text-blue-400 font-mono">{t.serial_total_ms.toFixed(2)} ms</div>
+                      <div className="text-xs text-zinc-500">1 thread</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-400">Total OpenMP</div>
+                      <div className="text-2xl font-bold text-purple-400 font-mono">{t.parallel_total_ms.toFixed(2)} ms</div>
+                      <div className="text-xs text-zinc-500">{allSubjectsResult.openmp_threads} threads</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-400">Total Pthreads</div>
+                      <div className="text-2xl font-bold text-cyan-400 font-mono">{t.pthread_total_ms.toFixed(2)} ms</div>
+                      <div className="text-xs text-zinc-500">{allSubjectsResult.pthread_threads} threads</div>
+                    </div>
+                    {hasMpi && (
+                      <div>
+                        <div className="text-xs text-zinc-400">Total MPI</div>
+                        <div className="text-2xl font-bold text-green-400 font-mono">{t.mpi_total_ms.toFixed(2)} ms</div>
+                        <div className="text-xs text-zinc-500">{allMpiProcesses} processes</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Speedups row */}
+                  <div className={`grid grid-cols-1 ${hasMpi ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4 text-center mb-4`}>
+                    <div>
+                      <div className="text-xs text-zinc-400">Speedup (OpenMP)</div>
+                      <div className={`text-4xl font-black font-mono ${t.speedup_parallel >= 1 ? "text-emerald-400" : "text-red-400"}`}>
+                        {t.speedup_parallel.toFixed(2)}x
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-400">Speedup (Pthreads)</div>
+                      <div className={`text-4xl font-black font-mono ${t.speedup_pthread >= 1 ? "text-cyan-400" : "text-red-400"}`}>
+                        {t.speedup_pthread.toFixed(2)}x
+                      </div>
+                    </div>
+                    {hasMpi && (
+                      <div>
+                        <div className="text-xs text-zinc-400">Speedup (MPI)</div>
+                        <div className={`text-4xl font-black font-mono ${t.speedup_mpi >= 1 ? "text-green-400" : "text-red-400"}`}>
+                          {t.speedup_mpi.toFixed(2)}x
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Timing phases */}
+                  <div className="grid grid-cols-2 gap-3 pt-3 border-t border-amber-800/50">
+                    <div className="bg-zinc-800/40 rounded-lg p-3 text-center">
+                      <div className="text-xs text-zinc-400 mb-1">Parallel Fetch Phase</div>
+                      <div className="text-lg font-bold text-indigo-300 font-mono">{t.fetch_phase_ms.toFixed(1)} ms</div>
+                      <div className="text-xs text-zinc-500">{allSubjectsResult.subjects.length} subjects fetched concurrently</div>
+                    </div>
+                    <div className="bg-zinc-800/40 rounded-lg p-3 text-center">
+                      <div className="text-xs text-zinc-400 mb-1">Calculation Phase</div>
+                      <div className="text-lg font-bold text-amber-300 font-mono">{t.calc_phase_ms.toFixed(1)} ms</div>
+                      <div className="text-xs text-zinc-500">Serial + OpenMP + Pthreads{hasMpi ? " + MPI" : ""} per subject</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-subject sections */}
+                {allSubjectsResult.subjects.map(s => {
                   const { label, color: labelColor } = correlationLabel(s.serial.r);
-                  const spOmp = s.parallel.speedup ?? 0;
-                  const spPt  = s.pthread.speedup  ?? 0;
-                  const spMpi = s.mpi ? (s.speedup_mpi ?? 0) : 0;
-                  const allTimes = [
-                    { label: "Serial",   ms: s.serial.elapsed_ms,   color: "#3b82f6" },
-                    { label: "OpenMP",   ms: s.parallel.elapsed_ms,  color: "#a855f7" },
-                    { label: "Pthreads", ms: s.pthread.elapsed_ms,   color: "#06b6d4" },
-                    ...(s.mpi ? [{ label: "MPI", ms: s.mpi.elapsed_ms, color: "#22c55e" }] : []),
-                  ];
-                  const maxMs = Math.max(...allTimes.map(t => t.ms));
-
                   return (
-                    <div key={s.subject} className="border border-zinc-700 rounded-xl p-5 bg-zinc-900/60">
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-bold text-white text-sm truncate">{s.subject}</h3>
-                        <span className="text-xs text-zinc-500 font-mono">{s.n_pairs} pairs</span>
-                      </div>
-
-                      {/* r value + strength */}
-                      <div className="text-center mb-3">
-                        <div className="text-3xl font-black font-mono text-white">{s.serial.r.toFixed(4)}</div>
-                        <div className={`text-xs font-semibold mt-0.5 ${labelColor}`}>{label} · {directionLabel(s.serial.r)}</div>
-                      </div>
-
-                      {/* Best-fit line chart (no scatter points) */}
-                      <BestFitLineChart
-                        slope={s.serial.slope}
-                        intercept={s.serial.intercept}
-                        color={color}
-                        refSubject={allSubjectsResult.reference_subject}
-                        subject={s.subject}
-                      />
-
-                      {/* Speedup badges */}
-                      <div className="mt-3 flex flex-wrap gap-2 justify-center">
-                        {spOmp > 0 && (
-                          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${spOmp >= 1 ? "bg-purple-900/60 text-purple-300" : "bg-red-900/40 text-red-400"}`}>
-                            OMP {spOmp.toFixed(2)}x
-                          </span>
-                        )}
-                        {spPt > 0 && (
-                          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${spPt >= 1 ? "bg-cyan-900/60 text-cyan-300" : "bg-red-900/40 text-red-400"}`}>
-                            PT {spPt.toFixed(2)}x
-                          </span>
-                        )}
-                        {spMpi > 0 && (
-                          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${spMpi >= 1 ? "bg-green-900/60 text-green-300" : "bg-red-900/40 text-red-400"}`}>
-                            MPI {spMpi.toFixed(2)}x
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Horizontal bar comparison */}
-                      <div className="mt-3 space-y-1.5">
-                        {allTimes.map(t => (
-                          <div key={t.label} className="flex items-center gap-2 text-xs">
-                            <span className="w-14 text-zinc-400 shrink-0">{t.label}</span>
-                            <div className="flex-1 bg-zinc-800 rounded-full h-3 overflow-hidden">
-                              <div
-                                className="h-3 rounded-full"
-                                style={{ width: `${maxMs > 0 ? (t.ms / maxMs) * 100 : 0}%`, background: t.color }}
-                              />
-                            </div>
-                            <span className="w-16 text-right font-mono text-white shrink-0">{t.ms.toFixed(1)} ms</span>
+                    <div key={s.subject} className="mb-10">
+                      {/* Section heading */}
+                      <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-800">
+                        <div>
+                          <h3 className="text-lg font-bold text-white">{s.subject}</h3>
+                          <div className={`text-sm font-semibold ${labelColor}`}>
+                            r = {s.serial.r.toFixed(4)} · {label} · {directionLabel(s.serial.r)}
                           </div>
-                        ))}
+                        </div>
+                        <span className="text-xs text-zinc-500 font-mono bg-zinc-800 px-2 py-1 rounded">
+                          {s.n_pairs} pairs
+                        </span>
                       </div>
 
-                      {/* Thread counts footer */}
-                      <div className="mt-2 pt-2 border-t border-zinc-800 grid grid-cols-3 gap-1 text-center text-xs text-zinc-500">
-                        <span>Serial: 1</span>
-                        <span>OMP: {s.parallel.threads_used}</span>
-                        <span>PT: {s.pthread.threads_used}</span>
-                        {s.mpi && <span className="col-span-3 text-zinc-600">MPI: {s.mpi.threads_used} processes</span>}
+                      {/* Method cards — 3 per row, no timing */}
+                      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        <CompareMethodCard
+                          entry={s.serial}
+                          method="serial"
+                          nPairs={s.n_pairs}
+                          subject={s.subject}
+                          refSubject={allSubjectsResult.reference_subject}
+                        />
+                        <CompareMethodCard
+                          entry={s.parallel}
+                          method="parallel"
+                          nPairs={s.n_pairs}
+                          subject={s.subject}
+                          refSubject={allSubjectsResult.reference_subject}
+                        />
+                        <CompareMethodCard
+                          entry={s.pthread}
+                          method="pthread"
+                          nPairs={s.n_pairs}
+                          subject={s.subject}
+                          refSubject={allSubjectsResult.reference_subject}
+                        />
+                        {s.mpi && (
+                          <CompareMethodCard
+                            entry={{ ...s.mpi, speedup: s.speedup_mpi }}
+                            method="mpi"
+                            nPairs={s.n_pairs}
+                            subject={s.subject}
+                            refSubject={allSubjectsResult.reference_subject}
+                          />
+                        )}
                       </div>
                     </div>
                   );
                 })}
-              </div>
-            </>
-          )}
+              </>
+            );
+          })()}
         </>
       )}
     </>
