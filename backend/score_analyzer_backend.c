@@ -209,6 +209,8 @@ int main(int argc, char *argv[])
                                 CorrCompareHandler,  0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/all-subjects",
                                 CorrAllSubjectsHandler, 0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/all-subjects-method",
+                                CorrAllSubjectsMethodHandler, 0);
     mg_set_request_handler(ctx, HEALTH_URI,          HealthHandler,       0);
     /* Classes & Subjects need explicit + wildcard registration so both
        /api/classes  and  /api/classes/{name}  are matched */
