@@ -469,7 +469,7 @@ export default function ClassAnalysisTab() {
             >
               {loading === "compare_shared" ? "Running..." : "Compare All (Fast)"}
             </button>
-            <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
+            <span className="text-xs text-zinc-500 self-end pb-2">In fast compare data fetch for one time for all calculations</span>
           </div>
         </div>
 

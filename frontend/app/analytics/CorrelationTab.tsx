@@ -863,7 +863,7 @@ export default function CorrelationTab() {
                   className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
                   {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
                 </button>
-                <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
+                <span className="text-xs text-zinc-500 self-end pb-2">In fast compare data fetch for one time for all calculations</span>
               </div>
             </div>
           </div>
@@ -1097,7 +1097,7 @@ export default function CorrelationTab() {
                   {loading === "all" && allDisplayMode === "compare" ? "Comparing..." : "Compare All (Fast)"}
                 </button>
                 <span className="text-xs text-zinc-500 self-end pb-2">
-                  Compare All: separate fetch per method · Compare All (Fast): one fetch for all methods
+                  In fast compare data fetch for one time for all calculations
                 </span>
               </div>
             </div>
