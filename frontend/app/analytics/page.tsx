@@ -193,7 +193,6 @@ export default function AnalyticsPage() {
   const [numStudents, setNumStudents] = useState(100);
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
-  const [compareThreads, setCompareThreads] = useState(4);
   const [mpiProcesses, setMpiProcesses] = useState(2);
 
   async function removeDuplicates() {
@@ -286,8 +285,8 @@ export default function AnalyticsPage() {
       // racing — parallel Promise.all causes all timers to start at the same
       // moment, so if one holds the lock for a while the others time out (503).
       const sJson   = await fetch(`${API}/api/calculate/serial`).then(r => r.json());
-      const parJson = await fetch(`${API}/api/calculate/parallel?threads=${compareThreads}`).then(r => r.json());
-      const ptJson  = await fetch(`${API}/api/calculate/pthread?threads=${compareThreads}`).then(r => r.json());
+      const parJson = await fetch(`${API}/api/calculate/parallel?threads=${openmpThreads}`).then(r => r.json());
+      const ptJson  = await fetch(`${API}/api/calculate/pthread?threads=${pthreadThreads}`).then(r => r.json());
       const mpiJson = await fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null);
 
       if (!sJson?.data || !parJson?.data || !ptJson?.data)
@@ -334,7 +333,7 @@ export default function AnalyticsPage() {
     const t0 = performance.now();
     try {
       const res  = await fetch(
-        `${API}/api/calculate/compare?threads=${compareThreads}&mpi_processes=${mpiProcesses}`
+        `${API}/api/calculate/compare?threads=${openmpThreads}&pthread_threads=${pthreadThreads}&mpi_processes=${mpiProcesses}`
       );
       const json = await res.json();
       if (!json?.data?.serial || !json?.data?.parallel || !json?.data?.pthread)
@@ -588,20 +587,8 @@ export default function AnalyticsPage() {
               </button>
             </div>
 
-            {/* Compare All with thread count */}
+            {/* Compare All */}
             <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={256}
-                  value={compareThreads}
-                  onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                  disabled={loading !== null}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-                />
-              </div>
               <button
                 onClick={runCompare}
                 disabled={loading !== null}
@@ -616,7 +603,7 @@ export default function AnalyticsPage() {
               >
                 {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
               </button>
-              <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
+              <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
             </div>
           </div>
         </div>

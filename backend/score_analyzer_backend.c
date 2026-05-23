@@ -114,7 +114,11 @@ int main(int argc, char *argv[])
 {
 #ifdef ENABLE_MPI
     int mpi_rank = 0, mpi_world_size = 1;
-    MPI_Init(&argc, &argv);
+    int mpi_provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &mpi_provided);
+    if (mpi_provided < MPI_THREAD_FUNNELED)
+        fprintf(stderr, "[MPI] Warning: MPI_THREAD_FUNNELED not supported "
+                        "(provided=%d) — hybrid safety not guaranteed\n", mpi_provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
 

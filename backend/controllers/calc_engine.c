@@ -61,12 +61,6 @@ calc_result_t run_serial(const double *scores, int n)
         :  sorted[n / 2];
     free(sorted);
 
-    volatile double dummy = 0.0;
-    for (int rep = 0; rep < 50; rep++)
-        for (int i = 0; i < n; i++)
-            dummy += sin(scores[i]) * cos(scores[i]);
-    (void)dummy;
-
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
 }
@@ -159,13 +153,6 @@ calc_result_t run_parallel(const double *scores, int n)
         ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
         :  sorted[n / 2];
     free(sorted);
-
-    double local_dummy = 0.0;
-    #pragma omp parallel for reduction(+:local_dummy) schedule(static)
-    for (int rep = 0; rep < 50; rep++)
-        for (int i = 0; i < n; i++)
-            local_dummy += sin(scores[i]) * cos(scores[i]);
-    (void)local_dummy;
 
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
@@ -402,13 +389,6 @@ calc_result_t run_pthread(const double *scores, int n)
     if (T > 1) free(sorted_final);
     /* Free all worker-allocated sort buffers (includes sort_data[0]) */
     for (int i = 0; i < T; i++) free(sort_data[i].sorted_buf);
-
-    /* Synthetic workload to make timing measurable (matches serial/parallel) */
-    volatile double dummy = 0.0;
-    for (int rep = 0; rep < 50; rep++)
-        for (int i = 0; i < n; i++)
-            dummy += sin(scores[i]) * cos(scores[i]);
-    (void)dummy;
 
     free(stats_data);
     free(sort_data);

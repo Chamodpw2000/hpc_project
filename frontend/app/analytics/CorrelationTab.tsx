@@ -396,7 +396,6 @@ export default function CorrelationTab() {
   const [error, setError]                 = useState<string | null>(null);
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
-  const [compareThreads, setCompareThreads] = useState(4);
   const [allOpenmpThreads, setAllOpenmpThreads]   = useState(4);
   const [allPthreadThreads, setAllPthreadThreads] = useState(4);
   const [mpiProcesses, setMpiProcesses]           = useState(2);
@@ -537,8 +536,8 @@ export default function CorrelationTab() {
       // Run sequentially — all handlers compete for the same calc_lock mutex, so
       // concurrent requests race and the slower ones hit their 30 s timeout (503).
       const sJson   = await fetch(`${base}/serial?${p}`).then(r => r.json());
-      const parJson = await fetch(`${base}/parallel?${p}&threads=${compareThreads}`).then(r => r.json());
-      const ptJson  = await fetch(`${base}/pthread?${p}&threads=${compareThreads}`).then(r => r.json());
+      const parJson = await fetch(`${base}/parallel?${p}&threads=${openmpThreads}`).then(r => r.json());
+      const ptJson  = await fetch(`${base}/pthread?${p}&threads=${pthreadThreads}`).then(r => r.json());
       const mpiJson = await fetch(`${base}/mpi?${p}&mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null);
 
       if (!sJson?.data || !parJson?.data || !ptJson?.data)
@@ -589,7 +588,7 @@ export default function CorrelationTab() {
     try {
       const p   = buildParams();
       const res = await fetch(
-        `${API}/api/calculate/correlation/compare?${p}&threads=${compareThreads}&mpi_processes=${mpiProcesses}`
+        `${API}/api/calculate/correlation/compare?${p}&threads=${openmpThreads}&pthread_threads=${pthreadThreads}&mpi_processes=${mpiProcesses}`
       );
       const json = await res.json();
       if (!res.ok || !json?.data?.serial || !json?.data?.parallel || !json?.data?.pthread)
@@ -856,13 +855,6 @@ export default function CorrelationTab() {
               </div>
 
               <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
-                <div>
-                  <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
-                  <input type="number" min={1} max={256} value={compareThreads}
-                    onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                    disabled={!canRun}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50" />
-                </div>
                 <button onClick={runCompare} disabled={!canRun}
                   className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
                   {loading === "compare" ? "Comparing..." : "Compare All"}
@@ -871,7 +863,7 @@ export default function CorrelationTab() {
                   className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg">
                   {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
                 </button>
-                <span className="text-xs text-zinc-500 self-end pb-2">Applies to OpenMP &amp; Pthreads in comparison</span>
+                <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
               </div>
             </div>
           </div>

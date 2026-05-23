@@ -46,12 +46,6 @@ corr_result_t run_corr_serial(const score_pair_t *pairs, int n)
     r.best_fit_slope     = (bf_denom != 0.0) ? ((double)n * sum_xy - sum_x * sum_y) / bf_denom : 0.0;
     r.best_fit_intercept = (sum_y - r.best_fit_slope * sum_x) / n;
 
-    volatile double dummy = 0.0;
-    for (int i = 0; i < n; i++)
-        for (int rep = 0; rep < 500; rep++)
-            dummy += sin(pairs[i].x * 0.0174533) * cos(pairs[i].y * 0.0174533);
-    (void)dummy;
-
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
 }
@@ -87,16 +81,6 @@ corr_result_t run_corr_parallel(const score_pair_t *pairs, int n)
     r.best_fit_slope     = (bf_denom != 0.0) ? ((double)n * sum_xy - sum_x * sum_y) / bf_denom : 0.0;
     r.best_fit_intercept = (sum_y - r.best_fit_slope * sum_x) / n;
 
-    double dummy = 0.0;
-    #pragma omp parallel for reduction(+:dummy) schedule(static)
-    for (int i = 0; i < n; i++) {
-        double local = 0.0;
-        for (int rep = 0; rep < 500; rep++)
-            local += sin(pairs[i].x * 0.0174533) * cos(pairs[i].y * 0.0174533);
-        dummy += local;
-    }
-    (void)dummy;
-
     r.elapsed_ms = (omp_get_wtime() - t_start) * 1000.0;
     return r;
 }
@@ -126,11 +110,6 @@ static void* correlation_worker(void *arg)
         d->sum_x2 += x * x;
         d->sum_y2 += y * y;
     }
-    volatile double dummy = 0.0;
-    for (int i = d->start; i < d->end; i++)
-        for (int rep = 0; rep < 500; rep++)
-            dummy += sin(d->pairs[i].x * 0.0174533) * cos(d->pairs[i].y * 0.0174533);
-    (void)dummy;
     return NULL;
 }
 
