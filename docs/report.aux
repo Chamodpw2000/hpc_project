@@ -6,33 +6,42 @@
 \@writefile{toc}{\contentsline {section}{\numberline {2}Serial and Parallel Computations}{3}{section.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Descriptive Statistics and Median and Parallel Sorting}{3}{subsection.2.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.1}Calculations}{3}{subsubsection.2.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.2}results and comparison}{4}{subsubsection.2.1.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2.1}{\ignorespaces Performance and Result Comparison}}{4}{table.2.1}\protected@file@percent }
-\newlabel{tab:performance_comparison}{{2.1}{4}{Performance and Result Comparison}{table.2.1}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2.2}{\ignorespaces Detailed Performance Comparison and Timing Breakdown}}{4}{table.2.2}\protected@file@percent }
-\newlabel{tab:performance_breakdown}{{2.2}{4}{Detailed Performance Comparison and Timing Breakdown}{table.2.2}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2.1}{\ignorespaces Descriptive Statistics Performance: Scalability and Implementation Comparison}}{5}{figure.2.1}\protected@file@percent }
-\newlabel{fig:descriptive_statistics_performance}{{2.1}{5}{Descriptive Statistics Performance: Scalability and Implementation Comparison}{figure.2.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Pearson Correlation Coefficient}{6}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Calculations}{6}{subsubsection.2.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}results and comparison}{6}{subsubsection.2.2.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2.3}{\ignorespaces Result Comparison Correlation with Each Subject}}{6}{table.2.3}\protected@file@percent }
-\newlabel{tab:correlation_comparison}{{2.3}{6}{Result Comparison Correlation with Each Subject}{table.2.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2.4}{\ignorespaces Detailed Performance Comparison and Speedup}}{7}{table.2.4}\protected@file@percent }
-\newlabel{tab:performance_speedup_correlation}{{2.4}{7}{Detailed Performance Comparison and Speedup}{table.2.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2.2}{\ignorespaces Pearson Correlation Performance: Scalability and Implementation Comparison}}{8}{figure.2.2}\protected@file@percent }
-\newlabel{fig:correlation_performance}{{2.2}{8}{Pearson Correlation Performance: Scalability and Implementation Comparison}{figure.2.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Class Analysis}{9}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Calculations}{9}{subsubsection.2.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}results and comparison}{9}{subsubsection.2.3.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2.5}{\ignorespaces Detailed Performance Comparison and Speedup}}{10}{table.2.5}\protected@file@percent }
-\newlabel{tab:class_performance_speedup}{{2.5}{10}{Detailed Performance Comparison and Speedup}{table.2.5}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2.6}{\ignorespaces Detailed Performance Comparison and Descriptive Statistics per Subject}}{11}{table.2.6}\protected@file@percent }
-\newlabel{tab:class_subject_statistics}{{2.6}{11}{Detailed Performance Comparison and Descriptive Statistics per Subject}{table.2.6}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2.3}{\ignorespaces Class Analysis Performance: Scalability and Implementation Comparison}}{12}{figure.2.3}\protected@file@percent }
-\newlabel{fig:class_analysis_performance}{{2.3}{12}{Class Analysis Performance: Scalability and Implementation Comparison}{figure.2.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Speedup Comparison Chart}{13}{subsection.2.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2.4}{\ignorespaces Speedup comparison across all implementations and datasets}}{13}{figure.2.4}\protected@file@percent }
-\newlabel{fig:overall_speedup_comparison}{{2.4}{13}{Speedup comparison across all implementations and datasets}{figure.2.4}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {3}Conclusion}{14}{section.3}\protected@file@percent }
-\gdef \@abspage@last{15}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.2}Score Calculation Algorithm Flow}{3}{subsubsection.2.1.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2.1}{\ignorespaces Serial Score Calculation Flow: Step-by-step process for computing descriptive statistics}}{5}{figure.2.1}\protected@file@percent }
+\newlabel{fig:score_calculation_flow}{{2.1}{5}{Serial Score Calculation Flow: Step-by-step process for computing descriptive statistics}{figure.2.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.2}{\ignorespaces OpenMP Score Calculation Flow: Step-by-step process for computing descriptive statistics in parallel using loop reductions and task-based sorting}}{6}{figure.2.2}\protected@file@percent }
+\newlabel{fig:openmp_score_flow}{{2.2}{6}{OpenMP Score Calculation Flow: Step-by-step process for computing descriptive statistics in parallel using loop reductions and task-based sorting}{figure.2.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.3}{\ignorespaces Pthreads score calculation flow: fetched scores are processed by worker threads, joined, reduced into global statistics, and finally merged for median calculation.}}{7}{figure.2.3}\protected@file@percent }
+\newlabel{fig:pthread_score_flow}{{2.3}{7}{Pthreads score calculation flow: fetched scores are processed by worker threads, joined, reduced into global statistics, and finally merged for median calculation}{figure.2.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.4}{\ignorespaces Hybrid OpenMP + MPI score calculation flow: data is distributed to processes, calculated locally in parallel, reduced, and sorted globally for median calculation.}}{8}{figure.2.4}\protected@file@percent }
+\newlabel{fig:hybrid_score_flow}{{2.4}{8}{Hybrid OpenMP + MPI score calculation flow: data is distributed to processes, calculated locally in parallel, reduced, and sorted globally for median calculation}{figure.2.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.1.3}results and comparison}{9}{subsubsection.2.1.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2.1}{\ignorespaces Performance and Result Comparison}}{9}{table.2.1}\protected@file@percent }
+\newlabel{tab:performance_comparison}{{2.1}{9}{Performance and Result Comparison}{table.2.1}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2.2}{\ignorespaces Detailed Performance Comparison and Timing Breakdown}}{9}{table.2.2}\protected@file@percent }
+\newlabel{tab:performance_breakdown}{{2.2}{9}{Detailed Performance Comparison and Timing Breakdown}{table.2.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.5}{\ignorespaces Descriptive Statistics Performance: Scalability and Implementation Comparison}}{10}{figure.2.5}\protected@file@percent }
+\newlabel{fig:descriptive_statistics_performance}{{2.5}{10}{Descriptive Statistics Performance: Scalability and Implementation Comparison}{figure.2.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Pearson Correlation Coefficient}{11}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Calculations}{11}{subsubsection.2.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}results and comparison}{11}{subsubsection.2.2.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2.3}{\ignorespaces Result Comparison Correlation with Each Subject}}{11}{table.2.3}\protected@file@percent }
+\newlabel{tab:correlation_comparison}{{2.3}{11}{Result Comparison Correlation with Each Subject}{table.2.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2.4}{\ignorespaces Detailed Performance Comparison and Speedup}}{12}{table.2.4}\protected@file@percent }
+\newlabel{tab:performance_speedup_correlation}{{2.4}{12}{Detailed Performance Comparison and Speedup}{table.2.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.6}{\ignorespaces Pearson Correlation Performance: Scalability and Implementation Comparison}}{13}{figure.2.6}\protected@file@percent }
+\newlabel{fig:correlation_performance}{{2.6}{13}{Pearson Correlation Performance: Scalability and Implementation Comparison}{figure.2.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Class Analysis}{14}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Calculations}{14}{subsubsection.2.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}results and comparison}{14}{subsubsection.2.3.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2.5}{\ignorespaces Detailed Performance Comparison and Speedup}}{15}{table.2.5}\protected@file@percent }
+\newlabel{tab:class_performance_speedup}{{2.5}{15}{Detailed Performance Comparison and Speedup}{table.2.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2.6}{\ignorespaces Detailed Performance Comparison and Descriptive Statistics per Subject}}{16}{table.2.6}\protected@file@percent }
+\newlabel{tab:class_subject_statistics}{{2.6}{16}{Detailed Performance Comparison and Descriptive Statistics per Subject}{table.2.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2.7}{\ignorespaces Class Analysis Performance: Scalability and Implementation Comparison}}{17}{figure.2.7}\protected@file@percent }
+\newlabel{fig:class_analysis_performance}{{2.7}{17}{Class Analysis Performance: Scalability and Implementation Comparison}{figure.2.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}Speedup Comparison Chart}{18}{subsection.2.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2.8}{\ignorespaces Speedup comparison across all implementations and datasets}}{18}{figure.2.8}\protected@file@percent }
+\newlabel{fig:overall_speedup_comparison}{{2.8}{18}{Speedup comparison across all implementations and datasets}{figure.2.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Conclusion}{19}{section.3}\protected@file@percent }
+\gdef \@abspage@last{20}

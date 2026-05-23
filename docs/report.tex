@@ -123,6 +123,10 @@ In our application's view analytics section, there are 3 tabs related to differe
     \end{itemize}
 \end{itemize}
 
+\subsubsection{Score Calculation Algorithm Flow}
+
+Figure \ref{fig:score_calculation_flow} illustrates the complete algorithm flow for computing descriptive statistics and median values. The process begins with an HTTP GET request to the calculate-scores endpoint, followed by data retrieval from the database. The algorithm then performs two sequential passes over the data: the first pass accumulates the sum for mean calculation, and the second pass accumulates the variance sum. Finally, a serial quicksort is applied to determine the median value.
+\clearpage
 
 \noindent\textbf{Median and Parallel Sorting:} 
 
@@ -139,6 +143,347 @@ Sorting an array of size $n$ has a sequential complexity of $\mathcal{O}(n \log 
     \item \textbf{Pthreads}: The array is split into $T$ chunks. Each thread sorts its chunk using the standard library \texttt{qsort} in parallel. Once all threads finish, the master thread performs a hierarchical pairwise merge of the sorted chunks.
     \item \textbf{MPI}: The local score arrays are gathered from all processes back to the master process (Rank 0) using \texttt{MPI\_Gatherv}, and the master process performs a sequential sort using the standard library \texttt{qsort} to determine the global median.
 \end{itemize}
+
+The step-by-step processes for the serial, OpenMP, Pthreads, and Hybrid OpenMP + MPI implementations of the score calculation algorithm are visually detailed in the flowcharts below (Figures \ref{fig:score_calculation_flow}, \ref{fig:openmp_score_flow}, \ref{fig:pthread_score_flow}, and \ref{fig:hybrid_score_flow}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.75cm]
+    % Define styles
+    \tikzstyle{startstop} = [rectangle, rounded corners, minimum width=3cm, minimum height=0.8cm, align=center, text width=3.6cm, draw=black, fill=blue!20]
+    \tikzstyle{process} = [rectangle, minimum width=3.5cm, minimum height=0.8cm, align=center, text width=4.2cm, draw=black, fill=yellow!20]
+    \tikzstyle{decision} = [diamond, minimum width=2.5cm, minimum height=1cm, align=center, text width=2.8cm, draw=black, fill=orange!20]
+    \tikzstyle{arrow} = [thick, ->, >=stealth]
+    
+    % Nodes
+    \node (start) [startstop] {Start: GET /calculate-serial};
+    \node (fetch) [process, below of=start, yshift=-0.1cm] {Scores = Fetch Data from DB};
+    \node (loop1start) [process, below of=fetch, yshift=-0.15cm, text width=5.6cm] {Loop 1: $i = 0 \to N-1$\\\texttt{sum += scores[i]}\\\texttt{min = min(min, scores[i])}\\\texttt{max = max(max, scores[i])}};
+    \node (meanc) [process, below of=loop1start] {$\text{mean} = \frac{\text{sum}}{N}$};
+    \node (loop2start) [process, below of=meanc, text width=6.2cm] {Loop 2: $i = 0 \to N-1$\\\texttt{var\_sum += (scores[i] - mean)$^2$}\\Calculate Grade Distribution};
+    \node (varsum) [process, below of=loop2start, text width=6.2cm] {Accumulate Variance Sum\\var = $\sum\text{var\_sum}$};
+    \node (varstd) [process, below of=varsum, text width=6.2cm] {$\text{variance} = \frac{\text{var}}{N}$\\$\text{std\_dev} = \sqrt{\text{variance}}$};
+    \node (sort) [process, below of=varstd] {sorted = serial quicksort};
+    \node (median) [process, below of=sort, text width=6.2cm] {$\text{median} = \text{sorted}[ N/2]$};
+    \node (end) [startstop, below of=median, text width=6.2cm] {End: Return Results};
+    
+    % Arrows
+    \draw [arrow] (start) -- (fetch);
+    \draw [arrow] (fetch) -- (loop1start);
+    \draw [arrow] (loop1start) -- (meanc);
+    \draw [arrow] (meanc) -- (loop2start);
+    \draw [arrow] (loop2start) -- (varsum);
+    \draw [arrow] (varsum) -- (varstd);
+    \draw [arrow] (varstd) -- (sort);
+    \draw [arrow] (sort) -- (median);
+\end{tikzpicture}
+\caption{Serial Score Calculation Flow: Step-by-step process for computing descriptive statistics}
+\label{fig:score_calculation_flow}
+\end{figure}
+
+\clearpage
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.75cm]
+    % Define styles
+    \tikzstyle{startstop} = [rectangle, rounded corners, minimum width=3cm, minimum height=0.8cm, align=center, text width=4.0cm, draw=black, fill=blue!20]
+    \tikzstyle{process} = [rectangle, minimum width=3.8cm, minimum height=0.8cm, align=center, text width=4.8cm, draw=black, fill=yellow!20]
+    \tikzstyle{arrow} = [thick, ->, >=stealth]
+
+    % Nodes
+    \node (start) [startstop] {HTTP GET /calculation-parallel};
+    \node (fetch) [process, below of=start] {Scores = Fetch Data from DB Parallel};
+    \node (omp_fetch) [process, below of=fetch, yshift=-1.1cm, text width=14.0cm] {\scriptsize\ttfamily
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        \multicolumn{4}{|c|}{\texttt{\#pragma omp parallel for reduction(+:sum)}} \\
+        \multicolumn{4}{|c|}{\texttt{reduction(min:min) reduction(max:max) schedule(static)}} \\
+        \hline
+        \texttt{Thread 0} & \texttt{Thread 1} & \texttt{Thread 2} & \texttt{Thread 3} \\
+        \hline
+        \texttt{[0,N/4)} & \texttt{[N/4,N/2)} & \texttt{[N/2,3N/4)} & \texttt{[3N/4,N)} \\
+        \hline
+        \texttt{local\_sum} & \texttt{local\_sum} & \texttt{local\_sum} & \texttt{local\_sum} \\
+        \hline
+        \texttt{local\_min} & \texttt{local\_min} & \texttt{local\_min} & \texttt{local\_min} \\
+        \hline
+        \texttt{local\_max} & \texttt{local\_max} & \texttt{local\_max} & \texttt{local\_max} \\
+        \hline
+        \end{tabular}
+    };
+    \node (reduce1) [process, below of=omp_fetch, yshift=-1.1cm, text width=5.6cm] {Reduce local values and get\\global sum, min, max};
+    \node (mean) [process, below of=reduce1] {$\text{mean} = \frac{\text{sum}}{N}$};
+    \node (omp_mean) [process, below of=mean, yshift=-0.8cm, text width=14.0cm] {\scriptsize\ttfamily
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        \multicolumn{4}{|c|}{\texttt{\#pragma omp parallel for reduction(+:var\_sum,gA..gF)}} \\
+        \hline
+        \texttt{Thread 0} & \texttt{Thread 1} & \texttt{Thread 2} & \texttt{Thread 3} \\
+        \hline
+        \texttt{[0,N/4)} & \texttt{[N/4,N/2)} & \texttt{[N/2,3N/4)} & \texttt{[3N/4,N)} \\
+        \hline
+        $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ \\
+        \hline
+        \texttt{grade calculation} & \texttt{grade calculation} & \texttt{grade calculation} & \texttt{grade calculation} \\
+        \hline
+        \end{tabular}
+    };
+    \node (reduce2) [process, below of=omp_mean, yshift=-0.8cm, text width=5.8cm] {Reduction to get global var\_sum\\and grade distribution};
+    \node (stddev) [process, below of=reduce2] {$\text{std\_dev} = \sqrt{\frac{\text{var\_sum}}{N}}$};
+    \node (sort) [process, below of=stddev] {sorted = parallel merge-sort};
+    \node (median) [process, below of=sort] {$\text{median} = \text{sorted}[N/2]$};
+    \node (end) [startstop, below of=median] {End: Return Results};
+
+    % Arrows
+    \draw [arrow] (start) -- (fetch);
+    \draw [arrow] (fetch) -- (omp_fetch);
+    \draw [arrow] (omp_fetch) -- (reduce1);
+    \draw [arrow] (reduce1) -- (mean);
+    \draw [arrow] (mean) -- (omp_mean);
+    \draw [arrow] (omp_mean) -- (reduce2);
+    \draw [arrow] (reduce2) -- (stddev);
+    \draw [arrow] (stddev) -- (sort);
+    \draw [arrow] (sort) -- (median);
+    \draw [arrow] (median) -- (end);
+\end{tikzpicture}
+\caption{OpenMP Score Calculation Flow: Step-by-step process for computing descriptive statistics in parallel using loop reductions and task-based sorting}
+\label{fig:openmp_score_flow}
+\end{figure}
+
+
+
+\begin{figure}[H]
+\centering
+\resizebox{1\textwidth}{!}{%
+\begin{tikzpicture}[node distance=1.75cm and 2.0cm]
+    \tikzstyle{startstop} = [rectangle, rounded corners, minimum width=3.6cm, minimum height=0.85cm, align=center, text width=4.2cm, draw=black, fill=blue!15]
+    \tikzstyle{process} = [rectangle, minimum width=3.8cm, minimum height=0.85cm, align=center, text width=4.8cm, draw=black, fill=yellow!20]
+    \tikzstyle{branch} = [rectangle, minimum width=2.6cm, minimum height=0.85cm, align=center, text width=3.0cm, draw=black, fill=green!15]
+    \tikzstyle{arrow} = [thick, ->, >=stealth]
+
+    \node (start) [startstop] {posix thread\\GET /calculate};
+    \node (fetch) [process, below of=start] {Scores = Fetch data from the database};
+    \node (spawn) [process, below of=fetch] {Spawn threads x 2};
+
+    \node (t1) [branch, below left=1.2cm and 1.8cm of spawn, text width=4.2cm] {\scriptsize\ttfamily
+        \begin{tabular}{||c||}
+        \hline\hline
+        Thread 0 \\
+        scores[0, N/4) \\
+        local\_sum/min/max \\
+        grade calculation \\
+        \hline\hline
+        Thread 1 \\
+        scores[N/4, N/2) \\
+        local\_sum/min/max \\
+        grade calculation \\
+        \hline\hline
+        Thread 2 \\
+        scores[N/2, 3N/4) \\
+        local\_sum/min/max \\
+        grade calculation \\
+        \hline\hline
+        Thread 3 \\
+        scores[3N/4, N) \\
+        local\_sum/min/max \\
+        grade calculation \\
+        \hline\hline
+        \end{tabular}
+    };
+    \node (t2) [branch, below right=1.8cm and 1.8cm of spawn, text width=4.2cm] {\scriptsize\ttfamily
+        \begin{tabular}{||c||}
+        \hline\hline
+        Thread 4 \\
+        qsort(scores[0,N/4)) \\
+        $\rightarrow$ sorted\_buf[0] \\
+        \hline\hline
+        Thread 5 \\
+        qsort(scores[N/4,N/2)) \\
+        $\rightarrow$ sorted\_buf[1] \\
+        \hline\hline
+        Thread 6 \\
+        qsort(scores[N/2,3N/4)) \\
+        $\rightarrow$ sorted\_buf[2] \\
+        \hline\hline
+        Thread 7 \\
+        qsort(scores[3N/4,N)) \\
+        $\rightarrow$ sorted\_buf[3] \\
+        \hline\hline
+        \end{tabular}
+    };
+
+    \node (join1) [process, below of=spawn, yshift=-7.0cm] {pthread\_join()};
+    \node (stats) [process, below of=join1] {Segregation to get global sum, min, max, grade};
+    \node (mean) [process, below of=stats] {$\text{mean} = \text{sum} / N$};
+    \node (phase2) [process, below of=mean,yshift=-0.5cm, text width=12cm] {\scriptsize\ttfamily
+        \begin{tabular}{||c|c|c|c||}
+        \hline\hline
+        Thread 0 & Thread 1 & Thread 2 & Thread 3 \\
+        \hline
+        [0, N/4) & [N/4,N/2) & [N/2,3N/4) & [3N/4, N) \\
+        \hline
+        var for & var for & var for & var for \\
+        \hline
+        $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ & $\sum (\texttt{x}-\texttt{mean})^2$ \\
+        \hline
+        \texttt{grade calculation} & \texttt{grade calculation} & \texttt{grade calculation} & \texttt{grade calculation} \\
+        \hline\hline
+        \end{tabular}
+    };
+    \node (join2) [process, below of=phase2, yshift=-0.5cm, text width=6.2cm] {\scriptsize
+        pthread\_join(4) \\
+        \texttt{variance = $\Sigma$(local\_var\_sum) / N} \\
+        \texttt{stddev = sqrt(variance)}
+    };
+    \node (merge) [process, below of=join2] {Sorted = HIERARCHICAL merge};
+    \node (median) [startstop, below of=merge] {$\text{median} = \text{sorted}[N/2]$};
+
+    \draw [arrow] (start) -- (fetch);
+    \draw [arrow] (fetch) -- (spawn);
+    \draw [arrow] (spawn) -- (t1);
+    \draw [arrow] (spawn) -- (t2);
+    \draw [arrow] (t1.south) |- (join1.west);
+    \draw [arrow] (t2.south) |- (join1.east);
+    \draw [arrow] (join1) -- (stats);
+    \draw [arrow] (stats) -- (mean);
+    \draw [arrow] (mean) -- (phase2);
+    \draw [arrow] (phase2) -- (join2);
+    \draw [arrow] (join2) -- (merge);
+    \draw [arrow] (merge) -- (median);
+\end{tikzpicture}%
+}
+\caption{Pthreads score calculation flow: fetched scores are processed by worker threads, joined, reduced into global statistics, and finally merged for median calculation.}
+\label{fig:pthread_score_flow}
+\end{figure}
+
+
+
+
+
+\begin{figure}[H]
+\centering
+\resizebox{0.5\textwidth}{!}{%
+\begin{tikzpicture}[node distance=1.75cm and 2.0cm]
+    \tikzstyle{startstop} = [rectangle, rounded corners, minimum width=3.6cm, minimum height=0.85cm, align=center, text width=4.2cm, draw=black, fill=blue!15]
+    \tikzstyle{process} = [rectangle, minimum width=3.8cm, minimum height=0.85cm, align=center, text width=4.8cm, draw=black, fill=yellow!20]
+    \tikzstyle{branch} = [rectangle, minimum width=2.6cm, minimum height=0.85cm, align=center, text width=3.0cm, draw=black, fill=green!15]
+    \tikzstyle{arrow} = [thick, ->, >=stealth]
+
+    % Nodes
+    \node (h_start) [startstop] {Rank 0\\Scores = Fetch data from database};
+    \node (h_distribute) [process, below of=h_start, text width=8.2cm, yshift=-1.0cm] {\scriptsize\ttfamily
+        Rank 0 \ scores[0..N-1] \\
+        |-- [0, \ \ \ N/4) kept locally ------------- Rank 0 \\
+        |-- [N/4, \ \ N/2) ------------------------> Rank 1 \\
+        |-- [N/2, 3N/4) ------------------------> Rank 2 \\
+        |-- [3N/4, \ \ N) ------------------------> Rank 3
+    };
+    \node (h_circle2) [process, below of=h_distribute, text width=10.0cm, yshift=-2.5cm] {\scriptsize\ttfamily
+        \begin{tabular}{ccc}
+        \begin{tabular}{||c||}
+        \hline\hline
+        Rank 0 \\
+        local\_n = N/4 \\
+        \hline
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        OMP & OMP & OMP & OMP \\
+        T0 & T1 & T2 & T3 \\
+        N/16 & N/16 & N/16 & N/16 \\
+        \hline
+        \end{tabular} \\
+        \hline
+        OMP reduction: \\
+        local\_sum/min/max \\
+        \hline\hline
+        \end{tabular}
+        &
+        \begin{tabular}{||c||}
+        \hline\hline
+        Rank 1 \\
+        local\_n = N/4 \\
+        \hline
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        OMP & OMP & OMP & OMP \\
+        T0 & T1 & T2 & T3 \\
+        N/16 & N/16 & N/16 & N/16 \\
+        \hline
+        \end{tabular} \\
+        \hline
+        OMP reduction: \\
+        local\_sum/min/max \\
+        \hline\hline
+        \end{tabular}
+        &
+        ...same for Rank 2, 3
+        \end{tabular}
+    };
+    \node (h_reduce1) [process, below of=h_circle2, yshift=-2.5cm] {MPI\_Reduce to get global sum, min, max};
+    \node (h_mean) [process, below of=h_reduce1] {$\text{mean} = \text{global\_sum} / N$};
+    \node (h_bcast) [process, below of=h_mean] {Broadcast mean to other processes};
+    \node (h_circle3) [process, below of=h_bcast, text width=10.0cm, yshift=-2.5cm] {\scriptsize\ttfamily
+        \begin{tabular}{ccc}
+        \begin{tabular}{||c||}
+        \hline\hline
+        Rank 0 \\
+        \hline
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        OMP & OMP & OMP & OMP \\
+        T0 & T1 & T2 & T3 \\
+        \hline
+        \end{tabular} \\
+        \hline
+        OMP reduction: \\
+        local\_var\_sum \\
+        gA, gB, gC, gD, gF \\
+        \hline\hline
+        \end{tabular}
+        &
+        \begin{tabular}{||c||}
+        \hline\hline
+        Rank 1 \\
+        \hline
+        \begin{tabular}{|c|c|c|c|}
+        \hline
+        OMP & OMP & OMP & OMP \\
+        T0 & T1 & T2 & T3 \\
+        \hline
+        \end{tabular} \\
+        \hline
+        OMP reduction: \\
+        local\_var\_sum \\
+        gA, gB, gC, gD, gF \\
+        \hline\hline
+        \end{tabular}
+        &
+        ...same for Rank 2, 3
+        \end{tabular}
+    };
+    \node (h_accumulate) [process, below of=h_circle3, text width=5.4cm, yshift=-2.5cm] {Accumulate\\var = $\Sigma$(var-sum)\\variance = var / N\\std-dev = $\sqrt{\text{variance}}$};
+    \node (h_sort) [process, below of=h_accumulate, text width=6.2cm, yshift=-0.8cm] {Sorted = quicksort with 4 processes and then hierarchical way merge};
+    \node (h_median) [startstop, below of=h_sort] {$\text{median} = \text{Sorted}[N/2]$};
+
+    % Arrows
+    \draw [arrow] (h_start) -- (h_distribute);
+    \draw [arrow] (h_distribute) -- (h_circle2);
+    \draw [arrow] (h_circle2) -- (h_reduce1);
+    \draw [arrow] (h_reduce1) -- (h_mean);
+    \draw [arrow] (h_mean) -- (h_bcast);
+    \draw [arrow] (h_bcast) -- (h_circle3);
+    \draw [arrow] (h_circle3) -- (h_accumulate);
+    \draw [arrow] (h_accumulate) -- (h_sort);
+    \draw [arrow] (h_sort) -- (h_median);
+\end{tikzpicture}%
+}
+\caption{Hybrid OpenMP + MPI score calculation flow: data is distributed to processes, calculated locally in parallel, reduced, and sorted globally for median calculation.}
+\label{fig:hybrid_score_flow}
+\end{figure}
+
+
+\clearpage
 
 \subsubsection{results and comparison}
 For this calculation 35000 students used with 284,182 scores and did the same calculations as serial and  using OpenMP , Pthread  and MPI with different thread and process numbers.
@@ -505,6 +850,7 @@ For each subject $j \in \{1, \dots, M_C\}$ in class $C$, the compute engine calc
     \item \textbf{Grade Distribution}: Counts of scores falling into the standard grade bands (A, B, C, D, F) for the subject.
 \end{itemize}
 These calculations are executed in parallel across all subjects within the class using the serial baseline, OpenMP loop reductions and tasking, Pthreads worker threads, and MPI message passing routines, allowing a direct comparison of parallel performance and speedup for per-subject analysis.
+
 
 \subsubsection{results and comparison}
 Here we selected class C with 3421 students, 283238 scores in 8 subjects. This method does calculations for each subject separately.

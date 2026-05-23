@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.5.15)  23 MAY 2026 11:37
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.5.15)  23 MAY 2026 18:44
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -903,7 +903,7 @@ Package hyperref Info: Link coloring ON on input line 28.
 \openout4 = `report.out'.
 
 Package hyperref Info: Option `pageanchor' set `false' on input line 31.
-<university_logo.jpeg, id=58, 192.72pt x 263.98625pt>
+<university_logo.jpeg, id=62, 192.72pt x 263.98625pt>
 File: university_logo.jpeg Graphic file (type jpg)
 <use university_logo.jpeg>
 Package pdftex.def Info: university_logo.jpeg  used on input line 38.
@@ -938,49 +938,72 @@ Package hyperref Info: Option `pageanchor' set `true' on input line 72.
 
 ] [3
 
-] [4] [5
+] [4
 
-] [6
+] [5]
+Overfull \hbox (1.03566pt too wide) in paragraph at lines 355--355
+ [][][] 
+ []
 
-] [7] [8] [9
-
-] [10] [11] [12
-
-] [13
-
-] [14
+[6
 
 ]
-(report.aux)
+Overfull \hbox (110.59032pt too wide) in paragraph at lines 480--480
+ [][][] 
+ []
+
+
+Overfull \hbox (76.58983pt too wide) in paragraph at lines 480--480
+ [][][] 
+ []
+
+[7] [8] [9
+
+] [10
+
+] [11
+
+] [12] [13] [14
+
+] [15] [16] [17
+
+] [18
+
+] [19
+
+] (report.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2025-12-24>
  ***********
 Package rerunfilecheck Info: File `report.out' has not changed.
-(rerunfilecheck)             Checksum: D4F4054167F81244CA4A75D07315E4A4;2241.
+(rerunfilecheck)             Checksum: B1D5DF9F4E7F8E7EAA10B6DBFBB5C8F0;2478.
  ) 
 Here is how much of TeX's memory you used:
- 34671 strings out of 467871
- 793444 string characters out of 5428446
- 1359552 words of memory out of 5000000
- 62881 multiletter control sequences out of 15000+600000
- 638583 words of font info for 117 fonts, out of 8000000 for 9000
+ 34995 strings out of 467871
+ 798969 string characters out of 5428446
+ 1365460 words of memory out of 5000000
+ 63180 multiletter control sequences out of 15000+600000
+ 640022 words of font info for 129 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 84i,19n,104p,1005b,2252s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 84i,26n,104p,1005b,2250s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\User\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\tcrm1
 200.pk><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx10.pfb><C:/P
 rogram Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmbx12.pfb><C:/Program Files
 /MiKTeX/fonts/type1/public/amsfonts/cm/cmex10.pfb><C:/Program Files/MiKTeX/font
-s/type1/public/amsfonts/cm/cmmi12.pfb><C:/Program Files/MiKTeX/fonts/type1/publ
-ic/amsfonts/cm/cmmi6.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/c
-m/cmmi8.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><
-C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Program Fi
-les/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Program Files/MiKTeX/fon
-ts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Program Files/MiKTeX/fonts/type1/pub
-lic/amsfonts/cm/cmtt12.pfb>
-Output written on report.pdf (15 pages, 221597 bytes).
+s/type1/public/amsfonts/cmextra/cmex8.pfb><C:/Program Files/MiKTeX/fonts/type1/
+public/amsfonts/cm/cmmi12.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfo
+nts/cm/cmmi6.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.
+pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmr10.pfb><C:/Progr
+am Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Program Files/MiKT
+eX/fonts/type1/public/amsfonts/cm/cmr6.pfb><C:/Program Files/MiKTeX/fonts/type1
+/public/amsfonts/cm/cmr8.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfon
+ts/cm/cmsy10.pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy8.
+pfb><C:/Program Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt12.pfb><C:/Prog
+ram Files/MiKTeX/fonts/type1/public/amsfonts/cm/cmtt8.pfb>
+Output written on report.pdf (20 pages, 285307 bytes).
 PDF statistics:
- 229 PDF objects out of 1000 (max. 8388607)
- 48 named destinations out of 1000 (max. 500000)
- 25210 words of extra memory for PDF output out of 29859 (max. 10000000)
+ 286 PDF objects out of 1000 (max. 8388607)
+ 58 named destinations out of 1000 (max. 500000)
+ 28802 words of extra memory for PDF output out of 29859 (max. 10000000)
 
