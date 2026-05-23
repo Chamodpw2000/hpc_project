@@ -186,6 +186,124 @@ Serial & Single-Thread & 220.50 & 8.04 & 4.50 & 1.00 \\ \hline
 \end{tabular}
 \end{table}
 
+\clearpage
+
+\begin{figure}[H]
+\centering
+\definecolor{tabblue}{RGB}{31,119,180}
+\definecolor{tabred}{RGB}{214,39,40}
+\definecolor{taborange}{RGB}{255,127,14}
+\definecolor{tabgrey}{RGB}{127,127,127}
+\definecolor{tabgreen}{RGB}{44,160,44}
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.8\textwidth,
+    height=6cm,
+    xlabel={Number of Threads/Processes},
+    ylabel={Calculation Time (ms)},
+    xmin=1, xmax=4,
+    ymin=0, ymax=12,
+    xtick={1,2,3,4},
+    ytick={0,2,4,6,8,10,12},
+    legend style={at={(0.5,0.95)},anchor=north,legend columns=-1,column sep=10pt},
+    ymajorgrids=true,
+    grid style=dashed,
+    title={Execution Time vs. Worker Count}
+]
+\addplot[
+    color=tabblue,
+    mark=square,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 4.22)
+    (3, 3.10)
+    (4, 2.46)
+};
+\addlegendentry{OpenMP}
+
+\addplot[
+    color=tabred,
+    mark=triangle,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 5.80)
+    (3, 4.80)
+    (4, 3.82)
+};
+\addlegendentry{MPI}
+
+\addplot[
+    color=taborange,
+    mark=circle,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 4.36)
+    (3, 3.25)
+    (4, 2.61)
+};
+\addlegendentry{Pthreads}
+
+\addplot[
+    color=tabgreen,
+    dashed,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 8.04)
+    (3, 8.04)
+    (4, 8.04)
+};
+\addlegendentry{Serial}
+
+\end{axis}
+\end{tikzpicture}
+
+\vspace{0.8cm}
+
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.8\textwidth,
+    height=6cm,
+    ybar,
+    bar width=8pt,
+    xlabel={Configuration (Threads/Processes)},
+    ylabel={Speedup},
+    xmin=0.5, xmax=4.5,
+    xtick={1,2,3,4},
+    ymin=0, ymax=4.5,
+    ytick={0,1,2,3,4},
+    legend style={at={(0.5,0.95)},anchor=north,legend columns=-1,column sep=10pt},
+    ymajorgrids=true,
+    grid style=dashed,
+    title={Speedup Comparison},
+    area legend
+]
+\addplot[fill=tabblue] coordinates {(1,1.00) (2,1.92) (3,2.61) (4,3.29)};
+\addlegendentry{OpenMP}
+
+\addplot[fill=tabred] coordinates {(1,1.00) (2,1.25) (3,1.49) (4,1.84)};
+\addlegendentry{MPI}
+
+\addplot[fill=taborange] coordinates {(1,1.00) (2,1.84) (3,2.46) (4,3.05)};
+\addlegendentry{Pthreads}
+
+\addplot[fill=tabgreen] coordinates {(1,1.00) (2,1.00) (3,1.00) (4,1.00)};
+\addlegendentry{Serial}
+
+\end{axis}
+\end{tikzpicture}
+\caption{Descriptive Statistics Performance: Scalability and Implementation Comparison}
+\label{fig:descriptive_statistics_performance}
+\end{figure}
+
+\clearpage
 
 \subsection{Pearson Correlation Coefficient}
 
@@ -246,6 +364,123 @@ Serial & Single-Thread & 220.50 & 8.04 & 1.00 \\ \hline
  & Thread 4 & 220.50 & 2.61 & 3.08 \\ \hline
 \end{tabular}
 \end{table}
+
+\begin{figure}[H]
+\centering
+\definecolor{tabblue}{RGB}{31,119,180}
+\definecolor{tabred}{RGB}{214,39,40}
+\definecolor{taborange}{RGB}{255,127,14}
+\definecolor{tabgrey}{RGB}{127,127,127}
+\definecolor{tabgreen}{RGB}{44,160,44}
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.8\textwidth,
+    height=6cm,
+    xlabel={Number of Threads/Processes},
+    ylabel={Calculation Time (ms)},
+    xmin=1, xmax=4,
+    ymin=0, ymax=12,
+    xtick={1,2,3,4},
+    ytick={0,2,4,6,8,10,12},
+    legend style={at={(0.5,0.95)},anchor=north,legend columns=-1,column sep=10pt},
+    ymajorgrids=true,
+    grid style=dashed,
+    title={Execution Time vs. Worker Count}
+]
+\addplot[
+    color=tabblue,
+    mark=square,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 4.22)
+    (3, 3.10)
+    (4, 2.46)
+};
+\addlegendentry{OpenMP}
+
+\addplot[
+    color=tabred,
+    mark=triangle,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 5.80)
+    (3, 4.80)
+    (4, 3.82)
+};
+\addlegendentry{MPI}
+
+\addplot[
+    color=taborange,
+    mark=circle,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 4.36)
+    (3, 3.25)
+    (4, 2.61)
+};
+\addlegendentry{Pthreads}
+
+\addplot[
+    color=tabgreen,
+    dashed,
+    thick
+]
+coordinates {
+    (1, 8.04)
+    (2, 8.04)
+    (3, 8.04)
+    (4, 8.04)
+};
+\addlegendentry{Serial}
+
+\end{axis}
+\end{tikzpicture}
+
+\vspace{0.8cm}
+
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.8\textwidth,
+    height=6cm,
+    ybar,
+    bar width=8pt,
+    xlabel={Configuration (Threads/Processes)},
+    ylabel={Speedup},
+    xmin=0.5, xmax=4.5,
+    xtick={1,2,3,4},
+    ymin=0, ymax=4.5,
+    ytick={0,1,2,3,4},
+    legend style={at={(0.5,0.95)},anchor=north,legend columns=-1,column sep=10pt},
+    ymajorgrids=true,
+    grid style=dashed,
+    title={Speedup Comparison},
+    area legend
+]
+\addplot[fill=tabblue] coordinates {(1,1.00) (2,1.91) (3,2.59) (4,3.27)};
+\addlegendentry{OpenMP}
+
+\addplot[fill=tabred] coordinates {(1,1.00) (2,1.39) (3,1.68) (4,2.10)};
+\addlegendentry{MPI}
+
+\addplot[fill=taborange] coordinates {(1,1.00) (2,1.84) (3,2.47) (4,3.08)};
+\addlegendentry{Pthreads}
+
+\addplot[fill=tabgreen] coordinates {(1,1.00) (2,1.00) (3,1.00) (4,1.00)};
+\addlegendentry{Serial}
+
+\end{axis}
+\end{tikzpicture}
+\caption{Pearson Correlation Performance: Scalability and Implementation Comparison}
+\label{fig:correlation_performance}
+\end{figure}
+
+\clearpage
 
 \subsection{Class Analysis}
 
@@ -433,27 +668,27 @@ coordinates {
     ybar,
     bar width=8pt,
     xlabel={Configuration (Threads/Processes)},
-    ylabel={Calculation Time (ms)},
+    ylabel={Speedup},
     xmin=0.5, xmax=4.5,
     xtick={1,2,3,4},
-    ymin=0, ymax=12,
-    ytick={0,2,4,6,8,10,12},
+    ymin=0, ymax=4.5,
+    ytick={0,1,2,3,4},
     legend style={at={(0.5,0.95)},anchor=north,legend columns=-1,column sep=10pt},
     ymajorgrids=true,
     grid style=dashed,
-    title={Implementation Comparison},
+    title={Speedup Comparison},
     area legend
 ]
-\addplot[fill=tabblue] coordinates {(1,8.04) (2,4.22) (3,3.10) (4,2.46)};
+\addplot[fill=tabblue] coordinates {(1,1.00) (2,1.91) (3,2.59) (4,3.27)};
 \addlegendentry{OpenMP}
 
-\addplot[fill=tabred] coordinates {(1,8.04) (2,5.80) (3,4.80) (4,3.82)};
+\addplot[fill=tabred] coordinates {(1,1.00) (2,1.39) (3,1.68) (4,2.10)};
 \addlegendentry{MPI}
 
-\addplot[fill=taborange] coordinates {(1,8.04) (2,4.36) (3,3.25) (4,2.61)};
+\addplot[fill=taborange] coordinates {(1,1.00) (2,1.84) (3,2.47) (4,3.08)};
 \addlegendentry{Pthreads}
 
-\addplot[fill=tabgreen] coordinates {(1,8.04) (2,8.04) (3,8.04) (4,8.04)};
+\addplot[fill=tabgreen] coordinates {(1,1.00) (2,1.00) (3,1.00) (4,1.00)};
 \addlegendentry{Serial}
 
 \end{axis}
@@ -463,250 +698,55 @@ coordinates {
 \end{figure}
 
 \clearpage
-\subsection{System Architecture and Database Integration}
-The system retrieves student data from a MongoDB database. The backend uses the official MongoDB C Driver (\texttt{libmongoc-1.0} and \texttt{libbson-1.0}) to query classes, subjects, and student scores.
+
+\subsection{Speedup Comparison Chart}
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[
-    node distance=1.0cm and 1.0cm,
-    block/.style={draw, rectangle, minimum width=3.5cm, minimum height=1.0cm, align=center, rounded corners=3pt, fill=blue!5, draw=blue!70, thick, font=\small},
-    db/.style={draw, rectangle, minimum width=2.8cm, minimum height=1.0cm, align=center, rounded corners=6pt, fill=green!5, draw=green!70, thick, font=\small},
-    engine/.style={draw, rectangle, minimum width=3.5cm, minimum height=1.0cm, align=center, rounded corners=3pt, fill=orange!5, draw=orange!70, thick, font=\small},
-    model/.style={draw, rectangle, minimum width=3.0cm, minimum height=1.0cm, align=center, rounded corners=3pt, font=\small},
-    line/.style={draw, -latex, thick},
-    line2/.style={draw, latex-latex, thick}
+\definecolor{tabblue}{RGB}{31,119,180}
+\definecolor{tabred}{RGB}{214,39,40}
+\definecolor{taborange}{RGB}{255,127,14}
+\definecolor{tabgreen}{RGB}{44,160,44}
+\begin{tikzpicture}
+\begin{axis}[
+    width=0.8\textwidth,
+    height=7cm,
+    ybar,
+    bar width=12pt,
+    xlabel={Dataset},
+    ylabel={Speedup (x)},
+    xmin=0.5, xmax=3.5,
+    xtick={1,2,3},
+    xticklabels={Descriptive\\Statistics, Pearson\\Correlation, Class\\Analysis},
+    xticklabel style={align=center},
+    ymin=0, ymax=4.5,
+    ytick={0,1,2,3,4},
+    legend style={at={(0.5,0.98)},anchor=north,legend columns=2,column sep=8pt,font=\footnotesize},
+    ymajorgrids=true,
+    grid style=dashed,
+    title={\textbf{Speedup Comparison Across Implementations and Datasets}},
+    area legend
 ]
-    % Center column
-    \node [block] (frontend) {Next.js Frontend\\(React 19 / Recharts)};
-    \node [block, below=1.0cm of frontend] (backend) {CivetWeb API Server\\(C Web Server)};
-    \node [engine, below=1.0cm of backend] (engine) {Compute Engine\\(Statistical Suite)};
-    
-    % Side database
-    \node [db, left=1.2cm of backend] (db) {MongoDB Atlas\\(Marks Database)};
-    
-    % Bottom row models
-    \node [model, below=1.0cm of engine, fill=teal!5, draw=teal!70] (pthreads) {Pthreads Model\\(Manual Thread Team)};
-    \node [model, left=0.4cm of pthreads, fill=purple!5, draw=purple!70] (omp) {OpenMP Model\\(Loop Reduction / Tasks)};
-    \node [model, right=0.4cm of pthreads, fill=violet!5, draw=violet!70] (mpi) {MPI Model\\(Distributed Comm)};
+\addplot[fill=tabblue] coordinates {(1,3.29) (2,3.27) (3,3.27)};
+\addlegendentry{OpenMP (best config)}
 
-    % Arrows
-    \path [line] (frontend) -- node[right, font=\scriptsize] {HTTP API} (backend);
-    \path [line2] (backend.west) -- node[above, font=\scriptsize] {libmongoc} (db.east);
-    \path [line] (backend) -- node[right, font=\scriptsize] {Invokes} (engine);
-    \path [line] (engine) -- (omp);
-    \path [line] (engine) -- (pthreads);
-    \path [line] (engine) -- (mpi);
+\addplot[fill=tabred] coordinates {(1,1.84) (2,2.10) (3,2.10)};
+\addlegendentry{MPI (4 proc)}
+
+\addplot[fill=taborange] coordinates {(1,3.05) (2,3.08) (3,3.08)};
+\addlegendentry{Pthreads (best config)}
+
+\addlegendimage{dashed, black, thick}
+\addlegendentry{Serial baseline (1.0x)}
+
+\draw[dashed, black, thick] (axis cs:0.5,1.0) -- (axis cs:3.5,1.0);
+
+\end{axis}
 \end{tikzpicture}
-\caption{Swiftcore Full-Stack Architecture and Parallel Compute Engine Integration}
-\label{fig:architecture}
+
+\caption{Speedup comparison across all implementations and datasets}
+\label{fig:overall_speedup_comparison}
 \end{figure}
-
-\subsubsection{Application of Parallel Programming Concepts}
-To accelerate the statistical calculations over large-scale marks matrices, three distinct high-performance computing models are implemented:
-\begin{enumerate}
-    \item \textbf{Loop-Level and Task-Based Shared Memory (OpenMP)}: The computation of descriptive statistics (sums, min, max, grade distribution) utilizes fork-join parallelism. The data loops are split among threads using \texttt{\#pragma omp parallel for} directives combined with reduction clauses (\texttt{reduction(+:p\_sum)} and custom reduction variables) to avoid data races. For the median calculation, a parallel merge sort is implemented recursively; sub-arrays are sorted by spawning OpenMP tasks (\texttt{\#pragma omp task}) up to a recursion depth limit of 4, ensuring thread overhead is kept to a minimum.
-    \item \textbf{Low-Level Worker Thread Team and Merging (Pthreads)}: The Pthreads implementation manages worker thread execution manually for granular control. The workload of $N$ student records is partitioned evenly into $T$ chunks. A team of threads is created: $T$ threads compute local sums, minimums, maximums, and grade distributions, while another $T$ threads concurrently copy and sort their respective chunks using the standard C library \texttt{qsort}. After a barrier join, a second phase spawns $T$ threads to compute local variance sums using the globally-reduced mean. Finally, the sorted chunks are merged hierarchically using a pairwise merge algorithm to determine the global median.
-    \item \textbf{Distributed Memory Collective Communicators (MPI)}: To support distributed marks analysis across multiple compute nodes, an MPI-based master-worker architecture is implemented. The master process (Rank 0) queries student records from the database, broadcasts the array metadata using \texttt{MPI\_Bcast}, and scatters the scores across rank communicators using \texttt{MPI\_Scatterv}. Worker processes compute local aggregate statistics and reduce them back to Rank 0 using collective communication calls (\texttt{MPI\_Reduce} for minimums, maximums, sums, and grade counts). The scores are then gathered back to Rank 0 using \texttt{MPI\_Gatherv} to perform the final sort for median calculation.
-\end{enumerate}
-
-A database seeding route (\texttt{/api/seed}) is provided to generate synthetic student profiles with randomized scores using a uniform distribution to simulate realistic datasets. The evaluations in this report are conducted on three dataset sizes:
-\begin{itemize}
-    \item \textbf{Small}: $N = 1,000$ students
-    \item \textbf{Medium}: $N = 10,000$ students
-    \item \textbf{Large}: $N = 50,000$ students
-\end{itemize}
-\subsection{Serial Implementation}
-The serial implementation serves as the baseline. It runs on a single CPU core and executes the statistical loops sequentially. Sorting is done using the standard C library \texttt{qsort}. 
-
-\subsection{OpenMP Implementation}
-OpenMP is utilized for loop-level shared-memory parallelization. 
-\begin{itemize}
-    \item Loop reductions accumulate statistics:
-    \begin{verbatim}
-    #pragma omp parallel for reduction(+:p_sum) \
-        reduction(min:p_min) reduction(max:p_max)
-    \end{verbatim}
-    \item The sorting step is parallelized recursively using OpenMP tasks:
-    \begin{verbatim}
-    #pragma omp task shared(arr) if(depth < 4)
-    parallel_merge_sort(arr, l, m, depth + 1);
-    \end{verbatim}
-\end{itemize}
-\subsection{POSIX Threads Implementation}
-Pthreads is used for manual, fine-grained thread control. The compute engine splits the workload among $T$ threads.
-\begin{itemize}
-    \item \textbf{Phase 1}: Spawns $2T$ threads simultaneously. $T$ threads calculate local statistics (sum, min, max, grade counts), while another $T$ threads copy and sort local chunks of the score array.
-    \item \textbf{Phase 2}: Spawns $T$ threads to compute variance using the global mean calculated in Phase 1.
-    \item \textbf{Merge}: Hierarchically merges the sorted chunks pairwise to obtain the final sorted array.
-\end{itemize}
-
-\subsection{MPI Implementation}
-MPI is used to evaluate distributed-memory scalability. In distributed mode, multiple processes (ranks) are initialized.
-\begin{itemize}
-    \item \textbf{Rank 0 (Master)}: Pulls data from MongoDB, broadcasts the size $N$ using \texttt{MPI\_Bcast}, scatters the scores to all ranks using \texttt{MPI\_Scatterv}, and participates in reductions.
-    \item \textbf{Worker Ranks}: Run a daemon loop (\texttt{mpi\_worker\_loop}) waiting for commands from Rank 0. Upon receiving a calculate command, they receive their local chunk of scores.
-    \item \textbf{Reductions}: Ranks compute local stats and use \texttt{MPI\_Reduce} to aggregate sum, min, max, variance, and grade distributions back to Rank 0.
-    \item \textbf{Gather}: Local scores are gathered back to Rank 0 using \texttt{MPI\_Gatherv} to perform a sequential \texttt{qsort} for median calculation.
-\end{itemize}
-
-\clearpage
-
-% --- CHAPTER 2 ---
-\section{Accuracy Analysis}
-
-\subsection{Correctness Verification}
-To ensure the correctness of the parallel implementations, the output of each parallel execution (OpenMP, Pthreads, and MPI) is verified against the serial baseline. Because the parallel algorithms perform the same mathematical operations on the same double-precision floating-point numbers, the output values should be identical.
-
-\subsection{Root Mean Square Error (RMSE)}
-Correctness is quantified using the Root Mean Square Error (RMSE). For the computed statistics (such as mean, variance, and standard deviation), the error between the parallel and serial results is evaluated. The RMSE is defined as:
-\begin{equation}
-    RMSE = \sqrt{\frac{1}{K} \sum_{i=1}^{K} (V_{parallel,i} - V_{serial,i})^2}
-    \label{eq:rmse}
-\end{equation}
-where $V_{parallel,i}$ and $V_{serial,i}$ are the parallel and serial values of statistic $i$, and $K$ is the number of compared metrics.
-\clearpage
-\subsection{Accuracy Results}
-The computed statistics (mean, median, variance, stddev, min, max) and grade distributions were compared on the seeded datasets.
-
-\begin{table}[H]
-\centering
-\caption{Accuracy comparison (RMSE) of parallel modes against Serial baseline}
-\label{tab:accuracy}
-\begin{tabular}{lllc}
-\toprule
-\textbf{Dataset Size} & \textbf{Parallel Mode} & \textbf{Configuration} & \textbf{RMSE vs Serial} \\
-\midrule
-$N = 1,000$ & OpenMP & 4 threads & $0.000000$ \\
-$N = 1,000$ & Pthreads & 4 threads & $0.000000$ \\
-$N = 1,000$ & MPI & 4 processes & $0.000000$ \\
-\midrule
-$N = 10,000$ & OpenMP & 4 threads & $0.000000$ \\
-$N = 10,000$ & Pthreads & 4 threads & $0.000000$ \\
-$N = 10,000$ & MPI & 4 processes & $0.000000$ \\
-\midrule
-$N = 50,000$ & OpenMP & 4 threads & $0.000000$ \\
-$N = 50,000$ & Pthreads & 4 threads & $0.000000$ \\
-$N = 50,000$ & MPI & 4 processes & $0.000000$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Accuracy Discussion}
-As shown in Table~\ref{tab:accuracy}, the RMSE is exactly $0.000000$ across all parallel modes, configurations, and dataset sizes. This confirms that:
-\begin{itemize}
-    \item OpenMP reduction variables and task-based merge sort operate correctly.
-    \item Pthreads manual workload partitioning and hierarchical merging do not introduce rounding errors or loss of data.
-    \item MPI scattering, local reductions, and gathering preserve the data integrity perfectly.
-    \item The grade boundaries are correctly evaluated across all modes, yielding identical counts.
-\end{itemize}
-
-\clearpage
-
-% --- CHAPTER 3 ---
-\section{Performance and Scalability Analysis}
-
-\subsection{Experimental Environment}
-The benchmarks were executed under a local Windows system using WSL 2 (Windows Subsystem for Linux) running Ubuntu 22.04 LTS. 
-\begin{itemize}
-    \item \textbf{CPU}: Intel Core i7-13620H (4 logical cores allocated to WSL, 2 physical cores visible to WSL).
-    \item \textbf{Memory}: 8 GB RAM allocated to WSL.
-    \item \textbf{Compiler}: GCC version 11.4 with OpenMP support.
-    \item \textbf{MPI Library}: OpenMPI version 4.1.2.
-    \item \textbf{Database}: MongoDB Atlas (Free Tier) accessed over a local network.
-\end{itemize}
-
-\subsection{Performance Metrics}
-Performance is evaluated using:
-\begin{itemize}
-    \item \textbf{Execution Time ($T_P$)}: The time taken (in milliseconds) to perform the computation using $P$ threads or processes. Note: Timing excludes database fetch time to measure raw compute engine performance.
-    \item \textbf{Speedup ($S_P$)}: The ratio of serial execution time to parallel execution time:
-    \begin{equation}
-        S_P = \frac{T_{serial}}{T_P}
-    \end{equation}
-    \item \textbf{Parallel Efficiency ($E_P$)}: The percentage of processor utilization:
-    \begin{equation}
-        E_P = \frac{S_P}{P} \times 100\%
-    \end{equation}
-\end{itemize}
-\clearpage
-\subsection{Descriptive Statistics Performance}
-Table~\ref{tab:stats_perf} shows the performance of descriptive statistics calculation (including sorting for median) on the large dataset ($N=50,000$).
-
-\begin{table}[H]
-\centering
-\small
-\setlength{\tabcolsep}{5pt}
-\caption{Performance comparison of descriptive statistics ($N = 50,000$)}
-\label{tab:stats_perf}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Implementation} & \textbf{Workers ($P$)} & \textbf{Execution Time (ms)} & \textbf{Speedup} & \textbf{Efficiency} \\
-\midrule
-Serial & 1 & 12.54 & 1.00x & 100.0\% \\
-OpenMP & 4 threads & 3.81 & 3.29x & 82.3\% \\
-Pthreads & 4 threads & 4.11 & 3.05x & 76.3\% \\
-MPI & 4 processes & 6.82 & 1.84x & 46.0\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-OpenMP and Pthreads show high speedups of 3.29x and 3.05x on 4 threads, respectively. Pthreads has slightly more overhead than OpenMP due to the manual creation and joining of $2T$ threads and the final hierarchical merge. MPI is slower, achieving 1.84x speedup, due to the overhead of scattering the data and gathering the scores back to Rank 0 for sorting.
-\clearpage
-\subsection{Pearson Correlation Performance}
-Table~\ref{tab:corr_perf} shows the performance of subject-to-subject Pearson correlation coefficient calculation ($N=50,000$ pairs).
-
-\begin{table}[H]
-\centering
-\small
-\setlength{\tabcolsep}{5pt}
-\caption{Performance comparison of Pearson correlation ($N = 50,000$ pairs)}
-\label{tab:corr_perf}
-\begin{tabular}{lcccc}
-\toprule
-\textbf{Implementation} & \textbf{Workers ($P$)} & \textbf{Execution Time (ms)} & \textbf{Speedup} & \textbf{Efficiency} \\
-\midrule
-Serial & 1 & 8.42 & 1.00x & 100.0\% \\
-OpenMP & 4 threads & 2.31 & 3.65x & 91.3\% \\
-Pthreads & 4 threads & 2.51 & 3.35x & 83.8\% \\
-MPI & 4 processes & 4.21 & 2.00x & 50.0\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-For correlation, which does not require sorting, OpenMP achieves 3.65x speedup and Pthreads achieves 3.35x. The lack of a merging phase improves Pthreads efficiency. MPI achieves 2.00x speedup because it only requires \texttt{MPI\_Scatterv} and a single \texttt{MPI\_Reduce} of 5 partial sums, avoiding the expensive gathering step.
-\clearpage
-\subsection{Scaling and Thread Count Analysis}
-We evaluated the scaling of OpenMP and Pthreads as thread counts increase from 1 to 8 on descriptive statistics ($N=50,000$).
-
-\begin{table}[H]
-\centering
-\caption{Scaling analysis of OpenMP and Pthreads across thread counts}
-\label{tab:scaling}
-\begin{tabular}{ccccc}
-\toprule
-& \multicolumn{2}{c}{\textbf{OpenMP}} & \multicolumn{2}{c}{\textbf{Pthreads}} \\
-\cmidrule(lr){2-3} \cmidrule(lr){4-5}
-\textbf{Threads ($T$)} & \textbf{Time (ms)} & \textbf{Speedup} & \textbf{Time (ms)} & \textbf{Speedup} \\
-\midrule
-1 & 12.54 & 1.00x & 12.54 & 1.00x \\
-2 & 6.52  & 1.92x & 6.81  & 1.84x \\
-4 & 3.81  & 3.29x & 4.11  & 3.05x \\
-8 & 5.21  & 2.41x & 5.52  & 2.27x \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-As shown in Table~\ref{tab:scaling}, performance improves when going from 1 to 4 threads. However, using 8 threads causes performance to degrade. This is because the WSL 2 environment was configured with only 4 logical cores. Spawning 8 threads causes oversubscription, leading to CPU context switching overhead.
-
-\subsection{Distributed Scaling and Communication Overhead}
-The MPI implementation suffers from communication overhead. In shared-memory models, threads access the same memory buffer. In MPI, data must be copied and transmitted across processes:
-\begin{enumerate}
-    \item \texttt{MPI\_Scatterv} distributes the score array from Rank 0 to worker ranks.
-    \item \texttt{MPI\_Reduce} aggregates partial sums back to Rank 0.
-    \item \texttt{MPI\_Gatherv} gathers the entire array back to Rank 0 for sorting.
-\end{enumerate}
-This communication overhead makes MPI less efficient for small or medium datasets on a single machine. However, in a multi-node cluster with a distributed database, MPI allows scaling to dataset sizes that exceed the memory of a single node.
 
 \clearpage
 

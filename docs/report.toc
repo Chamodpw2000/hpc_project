@@ -3,28 +3,11 @@
 \contentsline {subsection}{\numberline {2.1}Descriptive Statistics and Median and Parallel Sorting}{3}{subsection.2.1}%
 \contentsline {subsubsection}{\numberline {2.1.1}Calculations}{3}{subsubsection.2.1.1}%
 \contentsline {subsubsection}{\numberline {2.1.2}results and comparison}{4}{subsubsection.2.1.2}%
-\contentsline {subsection}{\numberline {2.2}Pearson Correlation Coefficient}{5}{subsection.2.2}%
-\contentsline {subsubsection}{\numberline {2.2.1}Calculations}{5}{subsubsection.2.2.1}%
-\contentsline {subsubsection}{\numberline {2.2.2}results and comparison}{5}{subsubsection.2.2.2}%
-\contentsline {subsection}{\numberline {2.3}Class Analysis}{6}{subsection.2.3}%
-\contentsline {subsubsection}{\numberline {2.3.1}Calculations}{6}{subsubsection.2.3.1}%
-\contentsline {subsubsection}{\numberline {2.3.2}results and comparison}{7}{subsubsection.2.3.2}%
-\contentsline {subsection}{\numberline {2.4}System Architecture and Database Integration}{10}{subsection.2.4}%
-\contentsline {subsubsection}{\numberline {2.4.1}Application of Parallel Programming Concepts}{10}{subsubsection.2.4.1}%
-\contentsline {subsection}{\numberline {2.5}Serial Implementation}{11}{subsection.2.5}%
-\contentsline {subsection}{\numberline {2.6}OpenMP Implementation}{11}{subsection.2.6}%
-\contentsline {subsection}{\numberline {2.7}POSIX Threads Implementation}{11}{subsection.2.7}%
-\contentsline {subsection}{\numberline {2.8}MPI Implementation}{12}{subsection.2.8}%
-\contentsline {section}{\numberline {3}Accuracy Analysis}{13}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Correctness Verification}{13}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Root Mean Square Error (RMSE)}{13}{subsection.3.2}%
-\contentsline {subsection}{\numberline {3.3}Accuracy Results}{14}{subsection.3.3}%
-\contentsline {subsection}{\numberline {3.4}Accuracy Discussion}{14}{subsection.3.4}%
-\contentsline {section}{\numberline {4}Performance and Scalability Analysis}{15}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Experimental Environment}{15}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Performance Metrics}{15}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Descriptive Statistics Performance}{16}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Pearson Correlation Performance}{17}{subsection.4.4}%
-\contentsline {subsection}{\numberline {4.5}Scaling and Thread Count Analysis}{18}{subsection.4.5}%
-\contentsline {subsection}{\numberline {4.6}Distributed Scaling and Communication Overhead}{18}{subsection.4.6}%
-\contentsline {section}{\numberline {5}Conclusion}{19}{section.5}%
+\contentsline {subsection}{\numberline {2.2}Pearson Correlation Coefficient}{6}{subsection.2.2}%
+\contentsline {subsubsection}{\numberline {2.2.1}Calculations}{6}{subsubsection.2.2.1}%
+\contentsline {subsubsection}{\numberline {2.2.2}results and comparison}{6}{subsubsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.3}Class Analysis}{9}{subsection.2.3}%
+\contentsline {subsubsection}{\numberline {2.3.1}Calculations}{9}{subsubsection.2.3.1}%
+\contentsline {subsubsection}{\numberline {2.3.2}results and comparison}{9}{subsubsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.4}Speedup Comparison Chart}{13}{subsection.2.4}%
+\contentsline {section}{\numberline {3}Conclusion}{14}{section.3}%
