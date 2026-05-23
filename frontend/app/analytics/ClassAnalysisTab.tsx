@@ -70,7 +70,6 @@ export default function ClassAnalysisTab() {
   const [error, setError] = useState<string | null>(null);
   const [openmpThreads, setOpenmpThreads] = useState(4);
   const [pthreadThreads, setPthreadThreads] = useState(4);
-  const [compareThreads, setCompareThreads] = useState(4);
   const [mpiProcesses, setMpiProcesses] = useState(2);
 
   // Store results mapped by subject name
@@ -160,7 +159,7 @@ export default function ClassAnalysisTab() {
       }
 
       for (const subject of subjects) {
-        const url = `${API}/api/calculate/parallel?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}&threads=${compareThreads}`;
+        const url = `${API}/api/calculate/parallel?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}&threads=${openmpThreads}`;
         const res = await fetch(url);
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || `OpenMP failed for ${subject}`);
@@ -168,7 +167,7 @@ export default function ClassAnalysisTab() {
       }
 
       for (const subject of subjects) {
-        const url = `${API}/api/calculate/pthread?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}&threads=${compareThreads}`;
+        const url = `${API}/api/calculate/pthread?class=${encodeURIComponent(selectedClass)}&subject=${encodeURIComponent(subject)}&threads=${pthreadThreads}`;
         const res = await fetch(url);
         const json = await res.json();
         if (res.ok) {
@@ -237,7 +236,7 @@ export default function ClassAnalysisTab() {
     setResults({});
 
     try {
-      const url = `/api/calculate/class/compare?class=${encodeURIComponent(selectedClass)}&threads=${compareThreads}&mpi_processes=${mpiProcesses}`;
+      const url = `/api/calculate/class/compare?class=${encodeURIComponent(selectedClass)}&threads=${openmpThreads}&pthread_threads=${pthreadThreads}&mpi_processes=${mpiProcesses}`;
       const res = await fetch(url);
       const json = await res.json();
       if (!res.ok || json.error) {
@@ -454,20 +453,8 @@ export default function ClassAnalysisTab() {
             </button>
           </div>
 
-          {/* Compare All with thread count */}
+          {/* Compare All */}
           <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-700/50">
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">Threads (for Compare)</label>
-              <input
-                type="number"
-                min={1}
-                max={256}
-                value={compareThreads}
-                onChange={e => setCompareThreads(Math.max(1, parseInt(e.target.value) || 1))}
-                disabled={!canRun}
-                className="bg-zinc-900 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
-              />
-            </div>
             <button
               onClick={runCompareAllSeparate}
               disabled={!canRun}
@@ -482,7 +469,7 @@ export default function ClassAnalysisTab() {
             >
               {loading === "compare_shared" ? "Running..." : "Compare All (Fast)"}
             </button>
-            <span className="text-xs text-zinc-500 self-end pb-2">Threads applies to OpenMP &amp; Pthreads · MPI Processes applies to MPI</span>
+            <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
           </div>
         </div>
 
