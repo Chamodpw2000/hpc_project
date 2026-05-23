@@ -166,18 +166,10 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
     r.grade_D  = global_grades[3];
     r.grade_F  = global_grades[4];
 
-    /* ── Step 7: Dummy load (embarrassingly parallel) ── */
-    double dummy = 0.0;
-    #pragma omp parallel for reduction(+:dummy) schedule(static)
-    for (int rep = 0; rep < 50; rep++)
-        for (int i = 0; i < local_n; i++)
-            dummy += sin(local_scores[i]) * cos(local_scores[i]);
-    (void)dummy;
-
-    /* ── Step 8: Each rank sorts its local chunk — all ranks sort simultaneously ── */
+    /* ── Step 7: Each rank sorts its local chunk — all ranks sort simultaneously ── */
     qsort(local_scores, (size_t)local_n, sizeof(double), cmp_double);
 
-    /* ── Step 9: Gather SORTED chunks to Rank 0 ── */
+    /* ── Step 8: Gather SORTED chunks to Rank 0 ── */
     double *gathered = NULL;
     if (sub_rank == 0) {
         gathered = (double *)malloc(sizeof(double) * n);
@@ -186,7 +178,7 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
                 gathered, sendcounts, displs, MPI_DOUBLE,
                 0, sub_comm);
 
-    /* ── Step 10: Rank 0 merges use_size sorted chunks — O(N) not O(N log N) ── */
+    /* ── Step 9: Rank 0 merges use_size sorted chunks — O(N) not O(N log N) ── */
     if (sub_rank == 0 && gathered) {
         double sort_start = omp_get_wtime();
 
@@ -315,20 +307,12 @@ void mpi_worker_calc_scores(int rank, int world_size)
     MPI_Reduce(&local_var_sum, &global_var_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
     MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, sub_comm);
 
-    /* ── Step 7: Dummy load ── */
-    double dummy = 0.0;
-    #pragma omp parallel for reduction(+:dummy) schedule(static)
-    for (int rep = 0; rep < 50; rep++)
-        for (int i = 0; i < local_n; i++)
-            dummy += sin(local_scores[i]) * cos(local_scores[i]);
-    (void)dummy;
-
     omp_set_num_threads(prev_omp);
 
     /* Sort local chunk before sending — Rank 0 merges sorted chunks */
     qsort(local_scores, (size_t)local_n, sizeof(double), cmp_double);
 
-    /* ── Step 8: Send SORTED chunk back for merge ── */
+    /* ── Step 7: Send SORTED chunk back for merge ── */
     MPI_Gatherv(local_scores, local_n, MPI_DOUBLE,
                 NULL, sendcounts, displs, MPI_DOUBLE,
                 0, sub_comm);
