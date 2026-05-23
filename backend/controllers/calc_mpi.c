@@ -48,6 +48,18 @@ static int cmp_double(const void *a, const void *b)
     return (da > db) - (da < db);
 }
 
+/* ── Helper: merge two sorted arrays into a new heap-allocated buffer ── */
+static double *merge_two_sorted(const double *a, int na, const double *b, int nb)
+{
+    double *out = (double *)malloc(sizeof(double) * (size_t)(na + nb));
+    if (!out) return NULL;
+    int i = 0, j = 0, k = 0;
+    while (i < na && j < nb) out[k++] = (a[i] <= b[j]) ? a[i++] : b[j++];
+    while (i < na) out[k++] = a[i++];
+    while (j < nb) out[k++] = b[j++];
+    return out;
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
  * run_mpi — called ONLY on Rank 0 (the HTTP server process)
  * req_procs: requested process count (0 = use all available)
@@ -88,6 +100,10 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
     int local_n = sendcounts[sub_rank];
     double *local_scores = (double *)malloc(sizeof(double) * local_n);
 
+    /* Hybrid: each MPI process uses use_size OMP threads on its local chunk */
+    int prev_omp = omp_get_max_threads();
+    omp_set_num_threads(use_size);
+
     /* ── Step 3: Scatter scores to all sub_comm ranks ── */
     MPI_Scatterv(scores, sendcounts, displs, MPI_DOUBLE,
                  local_scores, local_n, MPI_DOUBLE,
@@ -98,12 +114,14 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
     double local_min = local_scores[0];
     double local_max = local_scores[0];
 
+    #pragma omp parallel for reduction(+:local_sum) reduction(min:local_min) reduction(max:local_max) schedule(static)
     for (int i = 0; i < local_n; i++) {
         local_sum += local_scores[i];
         if (local_scores[i] < local_min) local_min = local_scores[i];
         if (local_scores[i] > local_max) local_max = local_scores[i];
     }
 
+    /* MPI_Reduce called outside all OMP regions — safe with MPI_THREAD_FUNNELED */
     double global_sum, global_min, global_max;
     MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
     MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, sub_comm);
@@ -120,18 +138,20 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
 
     /* ── Step 6: Phase 2 — local variance and grade distribution ── */
     double local_var_sum = 0.0;
-    int local_grades[5] = {0, 0, 0, 0, 0};
+    int gA = 0, gB = 0, gC = 0, gD = 0, gF = 0;
 
+    #pragma omp parallel for reduction(+:local_var_sum,gA,gB,gC,gD,gF) schedule(static)
     for (int i = 0; i < local_n; i++) {
         double diff = local_scores[i] - global_mean;
         local_var_sum += diff * diff;
 
-        if      (local_scores[i] >= 75) local_grades[0]++;
-        else if (local_scores[i] >= 65) local_grades[1]++;
-        else if (local_scores[i] >= 55) local_grades[2]++;
-        else if (local_scores[i] >= 45) local_grades[3]++;
-        else                            local_grades[4]++;
+        if      (local_scores[i] >= 75) gA++;
+        else if (local_scores[i] >= 65) gB++;
+        else if (local_scores[i] >= 55) gC++;
+        else if (local_scores[i] >= 45) gD++;
+        else                            gF++;
     }
+    int local_grades[5] = { gA, gB, gC, gD, gF };
 
     double global_var_sum;
     int global_grades[5];
@@ -147,13 +167,17 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
     r.grade_F  = global_grades[4];
 
     /* ── Step 7: Dummy load (embarrassingly parallel) ── */
-    volatile double dummy = 0.0;
+    double dummy = 0.0;
+    #pragma omp parallel for reduction(+:dummy) schedule(static)
     for (int rep = 0; rep < 50; rep++)
         for (int i = 0; i < local_n; i++)
             dummy += sin(local_scores[i]) * cos(local_scores[i]);
     (void)dummy;
 
-    /* ── Step 8: Gather all scores back to sub_rank 0 for median sort ── */
+    /* ── Step 8: Each rank sorts its local chunk — all ranks sort simultaneously ── */
+    qsort(local_scores, (size_t)local_n, sizeof(double), cmp_double);
+
+    /* ── Step 9: Gather SORTED chunks to Rank 0 ── */
     double *gathered = NULL;
     if (sub_rank == 0) {
         gathered = (double *)malloc(sizeof(double) * n);
@@ -162,17 +186,33 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
                 gathered, sendcounts, displs, MPI_DOUBLE,
                 0, sub_comm);
 
-    /* ── Step 9: sub_rank 0 sorts and picks median ── */
+    /* ── Step 10: Rank 0 merges use_size sorted chunks — O(N) not O(N log N) ── */
     if (sub_rank == 0 && gathered) {
         double sort_start = omp_get_wtime();
-        qsort(gathered, (size_t)n, sizeof(double), cmp_double);
-        r.sort_time_ms = (omp_get_wtime() - sort_start) * 1000.0;
 
-        r.median = (n % 2 == 0)
-            ? (gathered[n / 2 - 1] + gathered[n / 2]) / 2.0
-            :  gathered[n / 2];
+        double *cur   = gathered;   /* start with chunk 0 inside gathered buffer */
+        int     cur_n = sendcounts[0];
+        int     free_cur = 0;       /* do NOT free gathered itself */
+
+        for (int p = 1; p < use_size; p++) {
+            double *next = merge_two_sorted(cur, cur_n,
+                                            gathered + displs[p], sendcounts[p]);
+            if (free_cur) free(cur);
+            cur   = next;
+            cur_n += sendcounts[p];
+            free_cur = 1;
+        }
+
+        r.sort_time_ms = (omp_get_wtime() - sort_start) * 1000.0;
+        r.median = (cur_n % 2 == 0)
+            ? (cur[cur_n / 2 - 1] + cur[cur_n / 2]) / 2.0
+            :  cur[cur_n / 2];
+
+        if (free_cur) free(cur);
         free(gathered);
     }
+
+    omp_set_num_threads(prev_omp);
 
     free(local_scores);
     free(sendcounts);
@@ -222,6 +262,10 @@ void mpi_worker_calc_scores(int rank, int world_size)
     int local_n = sendcounts[sub_rank];
     double *local_scores = (double *)malloc(sizeof(double) * local_n);
 
+    /* Hybrid: same thread count as MPI process count */
+    int prev_omp = omp_get_max_threads();
+    omp_set_num_threads(use_size);
+
     /* ── Step 3: Receive scattered chunk ── */
     MPI_Scatterv(NULL, sendcounts, displs, MPI_DOUBLE,
                  local_scores, local_n, MPI_DOUBLE,
@@ -232,12 +276,14 @@ void mpi_worker_calc_scores(int rank, int world_size)
     double local_min = local_scores[0];
     double local_max = local_scores[0];
 
+    #pragma omp parallel for reduction(+:local_sum) reduction(min:local_min) reduction(max:local_max) schedule(static)
     for (int i = 0; i < local_n; i++) {
         local_sum += local_scores[i];
         if (local_scores[i] < local_min) local_min = local_scores[i];
         if (local_scores[i] > local_max) local_max = local_scores[i];
     }
 
+    /* MPI_Reduce outside OMP region — safe with MPI_THREAD_FUNNELED */
     double global_sum, global_min, global_max;
     MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, sub_comm);
     MPI_Reduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, 0, sub_comm);
@@ -249,18 +295,20 @@ void mpi_worker_calc_scores(int rank, int world_size)
 
     /* ── Step 6: Phase 2 — local variance and grades ── */
     double local_var_sum = 0.0;
-    int local_grades[5] = {0, 0, 0, 0, 0};
+    int gA = 0, gB = 0, gC = 0, gD = 0, gF = 0;
 
+    #pragma omp parallel for reduction(+:local_var_sum,gA,gB,gC,gD,gF) schedule(static)
     for (int i = 0; i < local_n; i++) {
         double diff = local_scores[i] - global_mean;
         local_var_sum += diff * diff;
 
-        if      (local_scores[i] >= 75) local_grades[0]++;
-        else if (local_scores[i] >= 65) local_grades[1]++;
-        else if (local_scores[i] >= 55) local_grades[2]++;
-        else if (local_scores[i] >= 45) local_grades[3]++;
-        else                            local_grades[4]++;
+        if      (local_scores[i] >= 75) gA++;
+        else if (local_scores[i] >= 65) gB++;
+        else if (local_scores[i] >= 55) gC++;
+        else if (local_scores[i] >= 45) gD++;
+        else                            gF++;
     }
+    int local_grades[5] = { gA, gB, gC, gD, gF };
 
     double global_var_sum;
     int global_grades[5];
@@ -268,13 +316,19 @@ void mpi_worker_calc_scores(int rank, int world_size)
     MPI_Reduce(local_grades, global_grades, 5, MPI_INT, MPI_SUM, 0, sub_comm);
 
     /* ── Step 7: Dummy load ── */
-    volatile double dummy = 0.0;
+    double dummy = 0.0;
+    #pragma omp parallel for reduction(+:dummy) schedule(static)
     for (int rep = 0; rep < 50; rep++)
         for (int i = 0; i < local_n; i++)
             dummy += sin(local_scores[i]) * cos(local_scores[i]);
     (void)dummy;
 
-    /* ── Step 8: Send local data back for median ── */
+    omp_set_num_threads(prev_omp);
+
+    /* Sort local chunk before sending — Rank 0 merges sorted chunks */
+    qsort(local_scores, (size_t)local_n, sizeof(double), cmp_double);
+
+    /* ── Step 8: Send SORTED chunk back for merge ── */
     MPI_Gatherv(local_scores, local_n, MPI_DOUBLE,
                 NULL, sendcounts, displs, MPI_DOUBLE,
                 0, sub_comm);
