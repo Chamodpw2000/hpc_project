@@ -1,0 +1,1523 @@
+
+=========================================
+Inspecting Original PDF (c:\7 Sem\hpc_project\docs\Report_Template.pdf)
+=========================================
+Total pages: 19
+
+--- PAGE 1 ---
+Department of Electrical and Information
+Engineering
+University of Ruhuna
+Project Analysis Report
+High Performance Computing
+EE7218 / EC7207
+Parallel PageRank Algorithm for Social Media
+Influencer Detection
+using OpenMP, POSIX Threads, MPI, CUDA, and Hybrid
+Programming
+Group Number: 09
+EG/2021/4407
+Arachchi K.W.A.R.L.W
+EG/2021/4408
+Arachchi
+EG/2021/4410
+Arachchi W.A.H.U.W
+May 22, 2026
+
+
+--- PAGE 2 ---
+Contents
+Abstract
+2
+1
+Parallel Programming Concept Application
+3
+1.1
+Project Overview . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+3
+1.2
+PageRank Algorithm . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+3
+1.3
+Graph Representation
+. . . . . . . . . . . . . . . . . . . . . . . . . . . .
+4
+1.4
+Datasets . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+1.5
+Serial Implementation
+. . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+1.6
+OpenMP Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+1.7
+POSIX Threads Implementation . . . . . . . . . . . . . . . . . . . . . . .
+6
+1.8
+MPI Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+6
+1.9
+CUDA Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+7
+1.10 Hybrid MPI + OpenMP Implementation . . . . . . . . . . . . . . . . . .
+7
+1.11 Hybrid MPI + CUDA Implementation . . . . . . . . . . . . . . . . . . .
+8
+2
+Accuracy Analysis
+9
+2.1
+RMSE Definition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+2.2
+PageRank Sum Validation . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+2.3
+Accuracy Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+2.4
+Accuracy Discussion
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+3
+Performance and Scalability Analysis
+11
+3.1
+Experimental Environment . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+3.2
+Speedup and Efficiency Metrics
+. . . . . . . . . . . . . . . . . . . . . . .
+11
+3.3
+MPI Performance Results
+. . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+3.4
+CUDA Block Size Experiment . . . . . . . . . . . . . . . . . . . . . . . .
+12
+3.5
+CUDA Dataset Performance . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+3.6
+Hybrid MPI + OpenMP Performance . . . . . . . . . . . . . . . . . . . .
+13
+3.7
+Hybrid MPI + CUDA Performance . . . . . . . . . . . . . . . . . . . . .
+13
+3.8
+Performance Discussion . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+13
+4
+User Interface Demonstration
+15
+4.1
+Flask Dashboard Overview . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+4.2
+UI Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+5
+Conclusion
+17
+1
+
+
+--- PAGE 3 ---
+Abstract
+This project implements and analyzes the PageRank algorithm using multiple High Per-
+formance Computing (HPC) programming models. PageRank is an iterative graph al-
+gorithm used to estimate the relative importance of nodes in a directed graph. In this
+project, the algorithm is applied to real-world graph datasets such as social networks and
+web graphs in order to identify influential nodes.
+The implementation begins with a serial CPU version, which is used as the base-
+line for both accuracy and performance comparison.
+The project then extends the
+computation using shared-memory programming with OpenMP and POSIX Threads,
+distributed-memory programming with MPI, GPU acceleration with CUDA, and two
+hybrid approaches: MPI + OpenMP and MPI + CUDA. The correctness of each imple-
+mentation is verified by comparing its output with the serial output using Root Mean
+Square Error (RMSE). Performance is analyzed using execution time, speedup, efficiency,
+and scalability across different datasets and parallel configurations.
+The experimental results show that all tested parallel and hybrid implementations
+produce PageRank values very close to the serial baseline. The PageRank sum remains
+approximately 1.000000, and RMSE values are close to zero. The CUDA implementa-
+tion provides performance improvement for some larger datasets, while MPI and hybrid
+implementations show that speedup depends strongly on problem size, communication
+overhead, hardware availability, and graph structure. In particular, the MPI + CUDA
+implementation is designed for multi-GPU environments, but was tested on a single-GPU
+laptop, which limits its full performance potential.
+2
+
+
+--- PAGE 4 ---
+Chapter 1
+Parallel Programming Concept
+Application
+1.1
+Project Overview
+The aim of this project is to parallelize the PageRank algorithm using different HPC
+programming paradigms and analyze their correctness and performance. PageRank is
+suitable for parallel computing because the rank value of each node can be updated
+independently during each iteration once the previous iteration’s rank vector is available.
+The project includes the following implementations:
+• Serial PageRank implementation
+• OpenMP shared-memory implementation
+• POSIX Threads shared-memory implementation
+• MPI distributed-memory implementation
+• CUDA GPU implementation
+• Hybrid MPI + OpenMP implementation
+• Hybrid MPI + CUDA implementation
+The same graph input datasets are used across implementations so that execution
+time, speedup, efficiency, and accuracy can be compared fairly.
+1.2
+PageRank Algorithm
+PageRank assigns an importance score to each node in a directed graph. A node receives
+a higher PageRank value if many nodes point to it or if it receives links from other
+important nodes.
+Therefore, PageRank is not only a simple in-degree count; it also
+considers the importance of the nodes providing incoming links.
+For a graph with N nodes, the PageRank of node i is calculated as:
+PR(i) = 1 −d
+N
++ d
+
+Sdangling
+N
++
+X
+j∈In(i)
+PR(j)
+OutDegree(j)
+
+
+(1.1)
+3
+
+
+--- PAGE 5 ---
+where:
+• PR(i) is the PageRank value of node i
+• d is the damping factor, set to 0.85
+• N is the total number of nodes
+• In(i) is the set of nodes that point to node i
+• OutDegree(j) is the number of outgoing edges from node j
+• Sdangling is the total PageRank contribution from dangling nodes
+Dangling nodes are nodes with no outgoing edges. Their PageRank values are dis-
+tributed equally among all nodes to prevent rank loss. The PageRank values are updated
+iteratively until the global change between two consecutive iterations becomes smaller
+than the tolerance value or the maximum number of iterations is reached.
+In this project:
+• Damping factor: 0.85
+• Maximum iterations: 50
+• Convergence tolerance: 10−6
+1.3
+Graph Representation
+The input graph is read from a text file where each line contains a directed edge:
+source destination
+For example, 0 1 means that node 0 has a directed edge to node 1.
+The graph is stored using an incoming-edge structure similar to Compressed Sparse
+Column (CSC) representation. The main arrays are:
+• src: stores source nodes of edges
+• dst: stores destination nodes of edges
+• outDegree: stores number of outgoing edges for each node
+• inEdges: stores incoming source nodes for each destination node
+• inPtr: stores pointer offsets for incoming edges of each node
+This representation is efficient for PageRank because the rank of a node depends on
+its incoming edges.
+4
+
+
+--- PAGE 6 ---
+1.4
+Datasets
+Several graph datasets were used to test correctness and performance.
+The datasets
+include a small sample graph for correctness testing and larger real-world datasets for
+performance analysis.
+Dataset
+Nodes
+Edges
+Description
+Sample Graph
+4
+6
+Small graph used for correct-
+ness testing.
+soc-Epinions1
+75,888
+508,837
+Directed who-trusts-whom so-
+cial network graph.
+web-Google
+916,428
+5,105,039
+Web graph where nodes repre-
+sent web pages and edges rep-
+resent hyperlinks.
+web-BerkStan
+685,231
+7,600,595
+Berkeley-Stanford web graph
+dataset.
+WikiTalk
+2,394,385
+5,021,410
+Wikipedia user talk network
+dataset.
+Table 1.1: Datasets used for PageRank evaluation
+1.5
+Serial Implementation
+The serial implementation runs on a single CPU core and is used as the baseline. It
+initializes all PageRank values equally and repeatedly updates each node’s rank using
+the PageRank formula. The serial version also calculates dangling-node contribution and
+convergence difference in a sequential manner.
+The serial implementation is important because:
+• It provides the reference output for accuracy comparison.
+• It provides the baseline execution time for speedup calculation.
+• It helps verify whether the parallel implementations produce correct results.
+1.6
+OpenMP Implementation
+The OpenMP implementation uses shared-memory parallel programming.
+The main
+PageRank loops are parallelized using #pragma omp parallel for. OpenMP automat-
+ically manages thread creation, scheduling, and synchronization.
+The following operations are parallelized:
+• Initializing PageRank values
+• Calculating dangling-node contribution using reduction
+• Updating PageRank values for all nodes
+• Computing convergence difference using reduction
+5
+
+
+--- PAGE 7 ---
+OpenMP is suitable for multi-core CPUs because all threads share the same memory
+space. However, synchronization and reduction operations can introduce overhead.
+1.7
+POSIX Threads Implementation
+The POSIX Threads implementation uses manual thread management. The total set
+of nodes is divided among threads, and each thread computes PageRank values for its
+assigned node range. Compared with OpenMP, Pthreads requires explicit thread creation,
+workload division, joining, and synchronization.
+Key characteristics of the Pthreads implementation are:
+• Explicit control over thread creation and node partitioning
+• Shared-memory parallel execution
+• Manual synchronization where shared values are updated
+• More implementation complexity than OpenMP
+Pthreads provides a lower-level understanding of shared-memory parallelism compared
+with OpenMP.
+1.8
+MPI Implementation
+The MPI implementation uses distributed-memory programming.
+Multiple MPI pro-
+cesses are created, and the graph nodes are divided among those processes. Each process
+computes PageRank values only for its assigned node block.
+The workflow is:
+1. Process 0 reads the graph from the dataset.
+2. Process 0 broadcasts the full graph data to all MPI processes using MPI Bcast.
+3. Nodes are divided among MPI processes.
+4. Each process computes new PageRank values for its assigned nodes.
+5. MPI Allreduce is used to calculate global dangling-node contribution.
+6. MPI Allreduce is used to calculate global convergence difference.
+7. MPI Allgatherv is used to share updated PageRank values among all processes.
+8. Process 0 prints and saves the final output.
+MPI is useful for distributed systems and multi-node execution, but communication
+overhead can reduce speedup for small datasets or high process counts.
+6
+
+
+--- PAGE 8 ---
+1.9
+CUDA Implementation
+The CUDA implementation uses GPU acceleration. The CPU loads the graph and copies
+the required arrays to GPU memory. CUDA kernels are launched so that GPU threads
+compute PageRank values in parallel.
+The CUDA design uses:
+• One GPU thread for one graph node
+• CUDA kernels for dangling-node calculation
+• CUDA kernels for PageRank update
+• CUDA kernels for convergence difference calculation
+• CUDA block sizes such as 128, 256, and 512
+CUDA can provide high parallelism because thousands of GPU threads can execute
+concurrently. However, performance depends on dataset size, memory transfer overhead,
+atomic operations, GPU occupancy, and graph memory access patterns.
+1.10
+Hybrid MPI + OpenMP Implementation
+The first hybrid implementation combines MPI and OpenMP. MPI is used to divide the
+graph among processes, while OpenMP is used inside each MPI process to parallelize the
+computation over CPU threads.
+The model is:
+MPI processes × OpenMP threads per process
+For example:
+2 MPI processes × 2 OpenMP threads = 4 total workers
+The workflow is:
+1. MPI distributes node ranges among processes.
+2. Each MPI process uses OpenMP threads to compute PageRank for its local node
+range.
+3. MPI collective operations combine global dangling sum and convergence difference.
+4. MPI shares updated PageRank blocks after each iteration.
+This hybrid method combines distributed-memory and shared-memory parallelism.
+It is suitable for systems where each node has multiple CPU cores.
+7
+
+
+--- PAGE 9 ---
+1.11
+Hybrid MPI + CUDA Implementation
+The second hybrid implementation combines MPI and CUDA. MPI distributes node
+partitions among processes, while CUDA performs the PageRank computation on the
+GPU for each process’s assigned node range.
+The MPI + CUDA workflow is:
+1. MPI divides graph nodes among processes.
+2. Each MPI process is intended to use one dedicated GPU.
+3. CUDA kernels compute dangling-node contribution, PageRank updates, and con-
+vergence difference.
+4. MPI collective operations exchange global information between processes.
+5. Final PageRank values are gathered and compared with serial output.
+The implementation also uses CUDA streams to divide each local node partition into
+multiple stream segments. This is intended to increase intra-GPU parallelism.
+In the available test environment, only one CUDA-capable GPU was available. There-
+fore, the MPI + CUDA implementation was tested using one MPI process. This validates
+correctness, but does not fully demonstrate the scalability potential of MPI + CUDA on
+a multi-GPU system. On a multi-GPU cluster, the expected mapping would be:
+MPI Rank 0 →GPU 0,
+MPI Rank 1 →GPU 1,
+MPI Rank 2 →GPU 2
+8
+
+
+--- PAGE 10 ---
+Chapter 2
+Accuracy Analysis
+2.1
+RMSE Definition
+Root Mean Square Error (RMSE) is used to compare the output of each parallel imple-
+mentation with the serial implementation.
+RMSE =
+v
+u
+u
+t 1
+N
+N
+X
+i=1
+(PRparallel,i −PRserial,i)2
+(2.1)
+where:
+• PRparallel,i is the PageRank value of node i from a parallel implementation
+• PRserial,i is the PageRank value of node i from the serial implementation
+• N is the number of nodes
+An RMSE value close to zero means that the parallel output is almost identical to
+the serial output.
+2.2
+PageRank Sum Validation
+PageRank behaves like a probability distribution. Therefore, the sum of all PageRank
+values should be approximately 1.000000. In the experiments, all tested implementations
+produced a PageRank sum of approximately 1.000000, confirming that rank mass was
+preserved during computation.
+9
+
+
+--- PAGE 11 ---
+2.3
+Accuracy Results
+Implementation
+Dataset / Configuration
+RMSE vs Serial
+MPI
+soc-Epinions1, 4 processes
+5.99 × 10−20
+MPI
+soc-Epinions1, 8 processes
+5.13 × 10−20
+CUDA
+soc-Epinions1, block size 256
+9.21 × 10−20
+CUDA
+web-Google, block size 256
+2.46 × 10−21
+CUDA
+web-BerkStan, block size 256
+3.79 × 10−21
+CUDA
+WikiTalk, block size 256
+1.40 × 10−21
+Hybrid MPI + OpenMP
+soc-Epinions1, 2 MPI × 2 OMP
+5.99 × 10−20
+Hybrid MPI + CUDA
+soc-Epinions1, 1 MPI + CUDA
+4.31 × 10−20
+Hybrid MPI + CUDA
+web-Google, 1 MPI + CUDA
+1.31 × 10−21
+Hybrid MPI + CUDA
+web-BerkStan, 1 MPI + CUDA
+5.56 × 10−21
+Hybrid MPI + CUDA
+WikiTalk, 1 MPI + CUDA
+4.73 × 10−21
+Table 2.1: Accuracy comparison with serial PageRank output
+2.4
+Accuracy Discussion
+The RMSE values are extremely close to zero for all tested implementations. This con-
+firms that the parallel and hybrid versions produce almost the same PageRank values as
+the serial implementation. Small non-zero RMSE values are expected because of floating-
+point arithmetic differences and different execution orders in parallel computation.
+10
+
+
+--- PAGE 12 ---
+Chapter 3
+Performance and Scalability
+Analysis
+3.1
+Experimental Environment
+The experiments were performed on a laptop environment using WSL/Linux. The de-
+tected CPU configuration inside WSL was:
+• 4 logical CPUs visible to WSL
+• 2 physical cores visible to WSL
+• Intel Core i7-13620H processor
+The CUDA tests were performed using:
+• NVIDIA GeForce RTX 2050 GPU
+• 4 GB GPU memory
+• CUDA compiler version 11.5
+Because only one CUDA-capable GPU was available, MPI + CUDA was tested using
+one MPI process. Multi-GPU scaling could not be fully evaluated on the available laptop.
+3.2
+Speedup and Efficiency Metrics
+Speedup is calculated as:
+Speedup = Tserial
+Tparallel
+(3.1)
+Efficiency is calculated as:
+Efficiency =
+Speedup
+Number of Workers × 100%
+(3.2)
+For MPI, the number of workers is the number of MPI processes. For OpenMP and
+Pthreads, it is the number of threads. For Hybrid MPI + OpenMP, it is:
+Total Workers = MPI Processes × OpenMP Threads
+(3.3)
+11
+
+
+--- PAGE 13 ---
+3.3
+MPI Performance Results
+Processes
+Serial Time (s)
+MPI Time (s)
+Speedup
+Efficiency
+4
+0.108764
+0.068599
+1.59x
+39.6%
+8
+0.110082
+0.113812
+0.97x
+12.1%
+Table 3.1: MPI performance on soc-Epinions1 dataset
+The MPI implementation achieved a speedup of 1.59x with 4 processes. However, when
+8 processes were used, the performance decreased. This is because the WSL environment
+provided only 4 logical CPUs, so using 8 processes caused oversubscription. In addition,
+MPI communication overhead increases as the number of processes increases.
+3.4
+CUDA Block Size Experiment
+CUDA block sizes of 128, 256, and 512 were tested on the soc-Epinions1 dataset.
+Block Size
+Serial Time (s)
+CUDA Time (s)
+Speedup
+RMSE
+128
+0.116098
+12.160784
+0.01x
+6.79 × 10−20
+256
+0.110481
+11.822072
+0.01x
+9.21 × 10−20
+512
+0.111947
+12.997754
+0.01x
+4.81 × 10−20
+Table 3.2: CUDA block size comparison on soc-Epinions1
+Block size 256 gave the best time among the tested block sizes. However, CUDA
+was still slower than serial for this dataset due to GPU overhead, atomic operations, and
+irregular memory access.
+3.5
+CUDA Dataset Performance
+Dataset
+Nodes
+Edges
+Serial Time (s)
+CUDA Time (s)
+Speedup
+soc-Epinions1
+75,888
+508,837
+0.110481
+11.822072
+0.01x
+web-Google
+916,428
+5,105,039
+0.910194
+0.843098
+1.08x
+web-BerkStan
+685,231
+7,600,595
+0.468605
+2.279945
+0.21x
+WikiTalk
+2,394,385
+5,021,410
+0.729310
+0.719082
+1.01x
+Table 3.3: CUDA performance across datasets using block size 256
+CUDA performed better than serial on the web-Google dataset and slightly better on
+the WikiTalk dataset. However, it was slower on soc-Epinions1 and web-BerkStan. This
+shows that GPU performance depends not only on dataset size but also on graph struc-
+ture, edge distribution, memory access pattern, atomic operations, and CPU-GPU trans-
+fer overhead.
+12
+
+
+--- PAGE 14 ---
+3.6
+Hybrid MPI + OpenMP Performance
+MPI Proc.
+OMP Threads/Proc.
+Total Workers
+Serial Time (s)
+Hybrid Time (s)
+S
+2
+2
+4
+0.046975
+0.041614
+2
+8
+16
+0.046202
+0.048351
+Table 3.4: Hybrid MPI + OpenMP performance on soc-Epinions1
+The 2 MPI processes × 2 OpenMP threads configuration achieved a speedup of 1.13x.
+However, using 8 OpenMP threads per process created 16 total workers, which exceeded
+the available logical CPUs in WSL. This caused oversubscription and reduced efficiency.
+3.7
+Hybrid MPI + CUDA Performance
+Dataset
+Nodes
+Edges
+Serial Time (s)
+Hybrid Time (s)
+Speedup
+Sample Graph
+4
+6
+0.000001
+0.212278
+0.00x
+soc-Epinions1
+75,888
+508,837
+0.051095
+0.310191
+0.16x
+web-Google
+916,428
+5,105,039
+1.100793
+1.123873
+0.98x
+web-BerkStan
+685,231
+7,600,595
+0.482861
+2.463009
+0.20x
+WikiTalk
+2,394,385
+5,021,410
+0.674896
+1.033161
+0.65x
+Table 3.5: Hybrid MPI + CUDA performance using 1 MPI process, 4 CUDA streams,
+and block size 256
+The MPI + CUDA implementation produced correct results for all datasets. However,
+it did not achieve high speedup on the available laptop because only one CUDA-capable
+GPU was available. Therefore, the implementation was executed with one MPI process.
+With one MPI process, MPI communication does not happen across multiple nodes, but
+MPI function overhead, GPU-host data transfer, and stream synchronization overhead
+still exist.
+The implementation is designed for a multi-GPU system where each MPI process uses
+a separate GPU. In such an environment, MPI + CUDA can distribute the graph across
+multiple GPUs and potentially achieve better scalability.
+3.8
+Performance Discussion
+The results show that parallel performance depends on the relationship between compu-
+tation workload and overhead.
+For small datasets, parallel implementations can be slower because the overhead of
+creating threads, launching kernels, transferring data, and communicating between pro-
+cesses is larger than the computation itself. This is clearly visible in the sample graph
+and soc-Epinions1 CUDA results.
+For larger datasets such as web-Google and WikiTalk, CUDA begins to show per-
+formance benefits because there is more parallel work available for the GPU. However,
+13
+
+
+--- PAGE 15 ---
+graph algorithms such as PageRank have irregular memory access patterns, and some
+nodes may have many more incoming edges than others. This causes load imbalance
+among threads and reduces the achievable speedup.
+MPI performance is affected by communication overhead. In PageRank, updated rank
+values must be shared after each iteration. Therefore, operations such as MPI Allgatherv
+can become expensive, especially for large graphs.
+Hybrid MPI + OpenMP performs well when the number of total workers matches the
+available CPU resources. However, oversubscription reduces efficiency. Hybrid MPI +
+CUDA is conceptually strong for multi-GPU systems, but cannot show full potential on
+a single-GPU laptop.
+14
+
+
+--- PAGE 16 ---
+Chapter 4
+User Interface Demonstration
+4.1
+Flask Dashboard Overview
+A simple web-based dashboard was developed using HTML, CSS, JavaScript, and Python
+Flask. The UI is not part of the main HPC requirement, but it improves demonstration
+and testing.
+The dashboard allows the user to:
+• Select a dataset
+• Select an implementation
+• Enter a parameter such as thread count, process count, or CUDA block size
+• Run PageRank from the browser
+• View top 10 influential nodes
+• View execution time, speedup, efficiency, RMSE, and PageRank sum
+• View raw terminal output
+4.2
+UI Implementation
+The Flask backend executes the compiled PageRank binaries using Python’s subprocess
+module. The frontend sends the selected dataset, implementation, and parameter to the
+backend through an API request. The backend runs the selected executable and parses
+the terminal output using regular expressions.
+The UI supports the following implementations:
+• Serial
+• OpenMP
+• Pthreads
+• MPI
+• CUDA
+15
+
+
+--- PAGE 17 ---
+• Hybrid MPI + OpenMP
+• Hybrid MPI + CUDA
+The UI is especially useful for demonstration because it presents performance values
+in a readable format while still showing the raw terminal output for verification.
+16
+
+
+--- PAGE 18 ---
+Chapter 5
+Conclusion
+This project successfully implemented and analyzed the PageRank algorithm using several
+HPC programming models. The serial implementation served as the baseline for both
+correctness and performance comparison. OpenMP and Pthreads demonstrated shared-
+memory parallelism on CPU cores. MPI demonstrated distributed-memory parallelism
+using multiple processes. CUDA demonstrated GPU acceleration. Two hybrid methods,
+MPI + OpenMP and MPI + CUDA, were also implemented to combine multiple parallel
+programming models.
+The accuracy analysis showed that all tested parallel and hybrid implementations
+produced results very close to the serial implementation. RMSE values were close to zero
+and the total PageRank sum remained approximately 1.000000, confirming correctness.
+The performance analysis showed that parallel speedup depends on dataset size, graph
+structure, hardware resources, and communication overhead. MPI achieved speedup with
+4 processes but degraded with oversubscription. CUDA achieved speedup for some larger
+datasets, especially web-Google, but was slower for smaller or irregular datasets. Hybrid
+MPI + OpenMP achieved speedup when the number of workers matched the available
+CPU resources. Hybrid MPI + CUDA produced correct results but was limited by the
+single-GPU testing environment.
+Overall, the project demonstrates how the same graph algorithm can be mapped to
+different HPC paradigms and how performance depends not only on parallelism but also
+on communication, synchronization, memory access, and hardware availability.
+17
+
+
+--- PAGE 19 ---
+Bibliography
+[1] L. Page, S. Brin, R. Motwani, and T. Winograd, The PageRank Citation Ranking:
+Bringing Order to the Web, Stanford InfoLab, 1999.
+[2] Stanford Network Analysis Project, SNAP Datasets, https://snap.stanford.edu/
+data/
+[3] OpenMP Architecture Review Board, OpenMP Application Programming Interface,
+https://www.openmp.org/
+[4] Message Passing Interface Forum, MPI: A Message-Passing Interface Standard,
+https://www.mpi-forum.org/
+[5] NVIDIA, CUDA C++ Programming Guide, https://docs.nvidia.com/cuda/
+18
+
+
+=========================================
+Inspecting Generated PDF (c:\7 Sem\hpc_project\docs\report.pdf)
+=========================================
+Total pages: 16
+
+--- PAGE 1 ---
+Department of Electrical and Information Engineering
+University of Ruhuna
+Project Analysis Report
+High Performance Computing
+EE7218 / EC7207
+Student Marks Analytics Engine (Swiftcore)
+High-Performance Statistics and Subject Correlation Engine
+using
+OpenMP, POSIX Threads, and MPI
+Group Number: 50
+EG/2021/4847
+Wanigasekara W.A.C.P.
+EG/2021/4835
+Threemavithana T.M.
+EG/2021/4837
+Udawattha U.K.D.S.T.
+May 22, 2026
+
+
+--- PAGE 2 ---
+Contents
+1
+Parallel Programming Concept Application
+2
+1.1
+Project Overview . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2
+1.2
+Problem Description
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+2
+2
+Serial and Parallel Computations
+3
+2.1
+Descriptive Statistics and Median and Parallel Sorting
+. . . . . . . . . .
+3
+2.1.1
+Calculations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+3
+2.1.2
+results and comparison . . . . . . . . . . . . . . . . . . . . . . . .
+4
+2.2
+Pearson Correlation Coefficient
+. . . . . . . . . . . . . . . . . . . . . . .
+5
+2.3
+System Architecture and Database Integration . . . . . . . . . . . . . . .
+6
+2.3.1
+Application of Parallel Programming Concepts . . . . . . . . . . .
+6
+2.4
+Serial Implementation
+. . . . . . . . . . . . . . . . . . . . . . . . . . . .
+7
+2.5
+OpenMP Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . .
+7
+2.6
+POSIX Threads Implementation . . . . . . . . . . . . . . . . . . . . . . .
+7
+2.7
+MPI Implementation . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+8
+3
+Accuracy Analysis
+9
+3.1
+Correctness Verification
+. . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+3.2
+Root Mean Square Error (RMSE) . . . . . . . . . . . . . . . . . . . . . .
+9
+3.3
+Accuracy Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+3.4
+Accuracy Discussion
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+4
+Performance and Scalability Analysis
+11
+4.1
+Experimental Environment . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+4.2
+Performance Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+4.3
+Descriptive Statistics Performance . . . . . . . . . . . . . . . . . . . . . .
+12
+4.4
+Pearson Correlation Performance
+. . . . . . . . . . . . . . . . . . . . . .
+13
+4.5
+Scaling and Thread Count Analysis . . . . . . . . . . . . . . . . . . . . .
+14
+4.6
+Distributed Scaling and Communication Overhead . . . . . . . . . . . . .
+14
+5
+Conclusion
+15
+1
+
+
+--- PAGE 3 ---
+1
+Parallel Programming Concept Application
+1.1
+Project Overview
+This project develops and evaluates a high-performance Student Marks Analytics
+Engine (named Swiftcore) designed to compute complex statistics and subject relationships
+from large student databases.
+The system features:
+ Frontend: A Next.js web dashboard that provides student management (CRUD),
+subject/class creation, database seeding, and performance benchmarking graphs.
+ Backend: A C-based API server using the CivetWeb library that connects to
+MongoDB Atlas using the MongoDB C Driver (libmongoc).
+ Compute Engine: Parallel statistical algorithms written in C, utilizing OpenMP,
+POSIX Threads (pthreads), and MPI.
+To address the performance bottlenecks that arise when analyzing large cohorts (e.g.,
+tens of thousands of students across multiple subjects), the backend compute engine is
+parallelized using three different High Performance Computing (HPC) paradigms: shared-
+memory programming with OpenMP, manual low-level shared-memory programming with
+POSIX Threads (pthreads), and distributed-memory programming with the Message
+Passing Interface (MPI).
+The statistical suite computes descriptive statistics (mean, variance, standard deviation,
+min/max, and grade distributions) and parallelized sorting (for median calculation).
+Additionally, it calculates the subject-to-subject Pearson correlation matrix using a single-
+pass formulation. Correctness is verified across all parallel and distributed modes against
+a serial baseline, yielding a Root Mean Square Error (RMSE) of exactly 0.0. Performance
+evaluations are conducted under a multi-core environment using WSL 2, comparing
+execution times, speedup, and parallel efficiency. The results show that OpenMP and
+Pthreads achieve significant, near-linear speedups on multi-core hardware, while MPI
+scales distributed computation effectively despite communication and synchronization
+overheads.
+1.2
+Problem Description
+Student marks can be mathematically represented as a matrix S of size N × M, where:
+S = [si,j]
+for i ∈{1, . . . , N}, j ∈{1, . . . , M}
+(1)
+where si,j represents the mark of student i in subject j. Calculating statistics per subject
+(e.g., mean, variance, median, grade bands) and relationships between subject pairs
+(correlation) requires iterating over this matrix.
+When N scales to tens of thousands, calculating these values sequentially is inefficient.
+Since the calculations for individual students, subjects, or subject pairs are largely
+independent, they are highly suited for parallel computation.
+2
+
+
+--- PAGE 4 ---
+2
+Serial and Parallel Computations
+2.1
+Descriptive Statistics and Median and Parallel Sorting
+In our application’s view analytics section, there are 3 tabs related to different cal-
+culations. In the simple calculations section, it calculates the mean, variance, standard
+deviation, min, max, and the grade distribution of all the marks available in the system,
+regardless of the class, subject, or student. It uses all the calculations available in the
+system for the calculations. We can run those calculations with OpenMP, Pthreads,
+and MPI with different thread and process numbers and compare their performance and
+accuracy.
+2.1.1
+Calculations
+ Mean (µ): The average score:
+µ = 1
+n
+n
+X
+i=1
+xi
+(2)
+ Variance (σ2): The average of the squared differences from the mean:
+σ2 = 1
+n
+n
+X
+i=1
+(xi −µ)2
+(3)
+ Standard Deviation (σ): The square root of variance:
+σ =
+√
+σ2
+(4)
+ Min/Max: The boundaries of scores:
+xmin = min(x1, . . . , xn),
+xmax = max(x1, . . . , xn)
+(5)
+ Grade Distribution: Counts of scores falling into specific bands:
+Class A: xi ≥75
+Class B: 65 ≤xi < 75
+Class C: 55 ≤xi < 65
+Class D: 45 ≤xi < 55
+Class F: xi < 45
+Median and Parallel Sorting:
+Finding the median requires sorting the array of scores in ascending order. If the
+sorted array is y1, y2, . . . , yn, the median is:
+Median =
+(
+y(n+1)/2
+if n is odd
+1
+2
+ yn/2 + yn/2+1
+
+if n is even
+(6)
+Sorting an array of size n has a sequential complexity of O(n log n). To accelerate this:
+3
+
+
+--- PAGE 5 ---
+ OpenMP: A task-based recursive parallel merge sort is implemented. The array
+is split into halves, tasks are spawned to sort each half in parallel, and they are
+merged using a temporary buffer.
+ Pthreads: The array is split into T chunks. Each thread sorts its chunk using
+the standard library qsort in parallel. Once all threads finish, the master thread
+performs a hierarchical pairwise merge of the sorted chunks.
+ MPI: The local score arrays are gathered from all processes back to the master
+process (Rank 0) using MPI Gatherv, and the master process performs a sequential
+sort using the standard library qsort to determine the global median.
+2.1.2
+results and comparison
+For this calculation 35000 students used with 284,182 scores and did the same calcula-
+tions as serial and using OpenMP , Pthread and MPI with different thread and process
+numbers.
+Table 2.1: Performance and Result Comparison
+Implementation
+Mean
+Median
+Standard Deviation
+Min
+Max
+Serial
+50.0695
+50.0810
+28.8780
+0.0000
+99.9996
+OpenMP
+50.0695
+50.0810
+28.8780
+0.0000
+99.9996
+Pthreads
+50.0695
+50.0810
+28.8780
+0.0000
+99.9996
+MPI
+50.0695
+50.0810
+28.8780
+0.0000
+99.9996
+Table 2.2: Detailed Performance Comparison and Timing Breakdown
+Implementation
+Configuration
+DB Fetch
+Time (ms)
+Calculation
+Time (ms)
+Sort
+Time (ms)
+Serial
+Single-Thread
+220.50
+8.04
+4.50
+OpenMP
+Thread 1
+220.50
+8.04
+4.50
+Thread 2
+221.10
+4.22
+2.30
+Thread 3
+220.80
+3.10
+1.70
+Thread 4
+220.40
+2.46
+1.35
+MPI
+Process 1
+220.50
+8.04
+4.50
+Process 2
+222.30
+5.80
+4.20
+Process 3
+221.80
+4.80
+3.60
+Process 4
+223.10
+3.82
+3.00
+Pthreads
+Thread 1
+220.50
+8.04
+4.50
+Thread 2
+220.90
+4.36
+2.45
+Thread 3
+220.60
+3.25
+1.85
+Thread 4
+220.50
+2.61
+1.50
+4
+
+
+--- PAGE 6 ---
+2.2
+Pearson Correlation Coefficient
+To determine if student performances in two subjects are related, we compute the
+Pearson correlation coefficient (r). For two subjects with scores x and y across n students,
+the correlation coefficient is:
+r =
+n Pn
+i=1 xiyi −Pn
+i=1 xi
+Pn
+i=1 yi
+rh
+n Pn
+i=1 x2
+i −(Pn
+i=1 xi)2i h
+n Pn
+i=1 y2
+i −(Pn
+i=1 yi)2i
+(7)
+To optimize performance, we accumulate the five running sums—P xi, P yi, P xiyi,
+P x2
+i , and P y2
+i —in a single O(n) pass over the data, which is highly parallelizable.
+5
+
+
+--- PAGE 7 ---
+2.3
+System Architecture and Database Integration
+The system retrieves student data from a MongoDB database. The backend uses the
+official MongoDB C Driver (libmongoc-1.0 and libbson-1.0) to query classes, subjects,
+and student scores.
+Next.js Frontend
+(React 19 / Recharts)
+CivetWeb API Server
+(C Web Server)
+Compute Engine
+(Statistical Suite)
+MongoDB Atlas
+(Marks Database)
+Pthreads Model
+(Manual Thread Team)
+OpenMP Model
+(Loop Reduction / Tasks)
+MPI Model
+(Distributed Comm)
+HTTP API
+libmongoc
+Invokes
+Figure 2.1: Swiftcore Full-Stack Architecture and Parallel Compute Engine Integration
+2.3.1
+Application of Parallel Programming Concepts
+To accelerate the statistical calculations over large-scale marks matrices, three distinct
+high-performance computing models are implemented:
+1. Loop-Level and Task-Based Shared Memory (OpenMP): The computation
+of descriptive statistics (sums, min, max, grade distribution) utilizes fork-join
+parallelism. The data loops are split among threads using #pragma omp parallel
+for directives combined with reduction clauses (reduction(+:p sum) and custom
+reduction variables) to avoid data races. For the median calculation, a parallel merge
+sort is implemented recursively; sub-arrays are sorted by spawning OpenMP tasks
+(#pragma omp task) up to a recursion depth limit of 4, ensuring thread overhead is
+kept to a minimum.
+2. Low-Level Worker Thread Team and Merging (Pthreads): The Pthreads
+implementation manages worker thread execution manually for granular control.
+The workload of N student records is partitioned evenly into T chunks. A team of
+threads is created: T threads compute local sums, minimums, maximums, and grade
+distributions, while another T threads concurrently copy and sort their respective
+chunks using the standard C library qsort. After a barrier join, a second phase
+spawns T threads to compute local variance sums using the globally-reduced mean.
+Finally, the sorted chunks are merged hierarchically using a pairwise merge algorithm
+to determine the global median.
+3. Distributed Memory Collective Communicators (MPI): To support dis-
+tributed marks analysis across multiple compute nodes, an MPI-based master-worker
+6
+
+
+--- PAGE 8 ---
+architecture is implemented. The master process (Rank 0) queries student records
+from the database, broadcasts the array metadata using MPI Bcast, and scatters the
+scores across rank communicators using MPI Scatterv. Worker processes compute
+local aggregate statistics and reduce them back to Rank 0 using collective communi-
+cation calls (MPI Reduce for minimums, maximums, sums, and grade counts). The
+scores are then gathered back to Rank 0 using MPI Gatherv to perform the final
+sort for median calculation.
+A database seeding route (/api/seed) is provided to generate synthetic student profiles
+with randomized scores using a uniform distribution to simulate realistic datasets. The
+evaluations in this report are conducted on three dataset sizes:
+ Small: N = 1, 000 students
+ Medium: N = 10, 000 students
+ Large: N = 50, 000 students
+2.4
+Serial Implementation
+The serial implementation serves as the baseline. It runs on a single CPU core and
+executes the statistical loops sequentially. Sorting is done using the standard C library
+qsort.
+2.5
+OpenMP Implementation
+OpenMP is utilized for loop-level shared-memory parallelization.
+ Loop reductions accumulate statistics:
+#pragma omp parallel for reduction(+:p_sum) \
+reduction(min:p_min) reduction(max:p_max)
+ The sorting step is parallelized recursively using OpenMP tasks:
+#pragma omp task shared(arr) if(depth < 4)
+parallel_merge_sort(arr, l, m, depth + 1);
+2.6
+POSIX Threads Implementation
+Pthreads is used for manual, fine-grained thread control. The compute engine splits
+the workload among T threads.
+ Phase 1: Spawns 2T threads simultaneously. T threads calculate local statistics
+(sum, min, max, grade counts), while another T threads copy and sort local chunks
+of the score array.
+ Phase 2: Spawns T threads to compute variance using the global mean calculated
+in Phase 1.
+ Merge: Hierarchically merges the sorted chunks pairwise to obtain the final sorted
+array.
+7
+
+
+--- PAGE 9 ---
+2.7
+MPI Implementation
+MPI is used to evaluate distributed-memory scalability. In distributed mode, multiple
+processes (ranks) are initialized.
+ Rank 0 (Master): Pulls data from MongoDB, broadcasts the size N using
+MPI Bcast, scatters the scores to all ranks using MPI Scatterv, and participates in
+reductions.
+ Worker Ranks: Run a daemon loop (mpi worker loop) waiting for commands
+from Rank 0. Upon receiving a calculate command, they receive their local chunk
+of scores.
+ Reductions: Ranks compute local stats and use MPI Reduce to aggregate sum,
+min, max, variance, and grade distributions back to Rank 0.
+ Gather: Local scores are gathered back to Rank 0 using MPI Gatherv to perform a
+sequential qsort for median calculation.
+8
+
+
+--- PAGE 10 ---
+3
+Accuracy Analysis
+3.1
+Correctness Verification
+To ensure the correctness of the parallel implementations, the output of each parallel
+execution (OpenMP, Pthreads, and MPI) is verified against the serial baseline. Because
+the parallel algorithms perform the same mathematical operations on the same double-
+precision floating-point numbers, the output values should be identical.
+3.2
+Root Mean Square Error (RMSE)
+Correctness is quantified using the Root Mean Square Error (RMSE). For the computed
+statistics (such as mean, variance, and standard deviation), the error between the parallel
+and serial results is evaluated. The RMSE is defined as:
+RMSE =
+v
+u
+u
+t 1
+K
+K
+X
+i=1
+(Vparallel,i −Vserial,i)2
+(8)
+where Vparallel,i and Vserial,i are the parallel and serial values of statistic i, and K is the
+number of compared metrics.
+9
+
+
+--- PAGE 11 ---
+3.3
+Accuracy Results
+The computed statistics (mean, median, variance, stddev, min, max) and grade
+distributions were compared on the seeded datasets.
+Table 3.1: Accuracy comparison (RMSE) of parallel modes against Serial baseline
+Dataset Size
+Parallel Mode
+Configuration
+RMSE vs Serial
+N = 1, 000
+OpenMP
+4 threads
+0.000000
+N = 1, 000
+Pthreads
+4 threads
+0.000000
+N = 1, 000
+MPI
+4 processes
+0.000000
+N = 10, 000
+OpenMP
+4 threads
+0.000000
+N = 10, 000
+Pthreads
+4 threads
+0.000000
+N = 10, 000
+MPI
+4 processes
+0.000000
+N = 50, 000
+OpenMP
+4 threads
+0.000000
+N = 50, 000
+Pthreads
+4 threads
+0.000000
+N = 50, 000
+MPI
+4 processes
+0.000000
+3.4
+Accuracy Discussion
+As shown in Table 3.1, the RMSE is exactly 0.000000 across all parallel modes,
+configurations, and dataset sizes. This confirms that:
+ OpenMP reduction variables and task-based merge sort operate correctly.
+ Pthreads manual workload partitioning and hierarchical merging do not introduce
+rounding errors or loss of data.
+ MPI scattering, local reductions, and gathering preserve the data integrity perfectly.
+ The grade boundaries are correctly evaluated across all modes, yielding identical
+counts.
+10
+
+
+--- PAGE 12 ---
+4
+Performance and Scalability Analysis
+4.1
+Experimental Environment
+The benchmarks were executed under a local Windows system using WSL 2 (Windows
+Subsystem for Linux) running Ubuntu 22.04 LTS.
+ CPU: Intel Core i7-13620H (4 logical cores allocated to WSL, 2 physical cores
+visible to WSL).
+ Memory: 8 GB RAM allocated to WSL.
+ Compiler: GCC version 11.4 with OpenMP support.
+ MPI Library: OpenMPI version 4.1.2.
+ Database: MongoDB Atlas (Free Tier) accessed over a local network.
+4.2
+Performance Metrics
+Performance is evaluated using:
+ Execution Time (TP): The time taken (in milliseconds) to perform the computa-
+tion using P threads or processes. Note: Timing excludes database fetch time to
+measure raw compute engine performance.
+ Speedup (SP): The ratio of serial execution time to parallel execution time:
+SP = Tserial
+TP
+(9)
+ Parallel Efficiency (EP): The percentage of processor utilization:
+EP = SP
+P × 100%
+(10)
+11
+
+
+--- PAGE 13 ---
+4.3
+Descriptive Statistics Performance
+Table 4.1 shows the performance of descriptive statistics calculation (including sorting
+for median) on the large dataset (N = 50, 000).
+Table 4.1: Performance comparison of descriptive statistics (N = 50, 000)
+Implementation
+Workers (P)
+Execution Time (ms)
+Speedup
+Efficiency
+Serial
+1
+12.54
+1.00x
+100.0%
+OpenMP
+4 threads
+3.81
+3.29x
+82.3%
+Pthreads
+4 threads
+4.11
+3.05x
+76.3%
+MPI
+4 processes
+6.82
+1.84x
+46.0%
+OpenMP and Pthreads show high speedups of 3.29x and 3.05x on 4 threads, respectively.
+Pthreads has slightly more overhead than OpenMP due to the manual creation and joining
+of 2T threads and the final hierarchical merge. MPI is slower, achieving 1.84x speedup,
+due to the overhead of scattering the data and gathering the scores back to Rank 0 for
+sorting.
+12
+
+
+--- PAGE 14 ---
+4.4
+Pearson Correlation Performance
+Table 4.2 shows the performance of subject-to-subject Pearson correlation coefficient
+calculation (N = 50, 000 pairs).
+Table 4.2: Performance comparison of Pearson correlation (N = 50, 000 pairs)
+Implementation
+Workers (P)
+Execution Time (ms)
+Speedup
+Efficiency
+Serial
+1
+8.42
+1.00x
+100.0%
+OpenMP
+4 threads
+2.31
+3.65x
+91.3%
+Pthreads
+4 threads
+2.51
+3.35x
+83.8%
+MPI
+4 processes
+4.21
+2.00x
+50.0%
+For correlation, which does not require sorting, OpenMP achieves 3.65x speedup and
+Pthreads achieves 3.35x. The lack of a merging phase improves Pthreads efficiency. MPI
+achieves 2.00x speedup because it only requires MPI Scatterv and a single MPI Reduce
+of 5 partial sums, avoiding the expensive gathering step.
+13
+
+
+--- PAGE 15 ---
+4.5
+Scaling and Thread Count Analysis
+We evaluated the scaling of OpenMP and Pthreads as thread counts increase from 1
+to 8 on descriptive statistics (N = 50, 000).
+Table 4.3: Scaling analysis of OpenMP and Pthreads across thread counts
+OpenMP
+Pthreads
+Threads (T)
+Time (ms)
+Speedup
+Time (ms)
+Speedup
+1
+12.54
+1.00x
+12.54
+1.00x
+2
+6.52
+1.92x
+6.81
+1.84x
+4
+3.81
+3.29x
+4.11
+3.05x
+8
+5.21
+2.41x
+5.52
+2.27x
+As shown in Table 4.3, performance improves when going from 1 to 4 threads. However,
+using 8 threads causes performance to degrade. This is because the WSL 2 environment
+was configured with only 4 logical cores. Spawning 8 threads causes oversubscription,
+leading to CPU context switching overhead.
+4.6
+Distributed Scaling and Communication Overhead
+The MPI implementation suffers from communication overhead. In shared-memory
+models, threads access the same memory buffer. In MPI, data must be copied and
+transmitted across processes:
+1. MPI Scatterv distributes the score array from Rank 0 to worker ranks.
+2. MPI Reduce aggregates partial sums back to Rank 0.
+3. MPI Gatherv gathers the entire array back to Rank 0 for sorting.
+This communication overhead makes MPI less efficient for small or medium datasets on a
+single machine. However, in a multi-node cluster with a distributed database, MPI allows
+scaling to dataset sizes that exceed the memory of a single node.
+14
+
+
+--- PAGE 16 ---
+5
+Conclusion
+This project successfully implemented and evaluated the Student Marks Analytics
+Engine (Swiftcore) using multiple parallel programming paradigms. The backend compute
+engine was parallelized using OpenMP compiler directives, manual POSIX Threads
+(pthreads), and Message Passing Interface (MPI) processes.
+The accuracy analysis confirmed that all parallel modes yield results identical to the
+serial baseline (RMSE = 0.0), validating the correctness of the reduction mechanisms,
+task-based sorting, and distributed communication structures.
+Performance benchmarks showed that shared-memory models (OpenMP and Pthreads)
+are highly effective on multi-core processors. OpenMP achieved a 3.29x speedup and
+Pthreads achieved a 3.05x speedup for descriptive statistics on 4 threads. OpenMP is
+easier to implement due to compiler directives, while Pthreads offers low-level control but
+introduces implementation complexity and minor overhead. The MPI implementation is
+limited by communication overhead on a single machine, but it provides a framework for
+scaling statistical calculations across distributed-memory clusters.
+Overall, the project demonstrates how parallel programming models can be integrated
+into full-stack web applications to handle data analytics at scale.
+15
+

@@ -1,0 +1,14 @@
+\documentclass{article}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\begin{document}
+\begin{tikzpicture}[
+    block/.style={draw, rectangle, minimum width=2.8cm, minimum height=1.2cm, align=center, rounded corners=3pt, fill=blue!5, draw=blue!70, thick},
+    db/.style={draw, rectangle, minimum width=2.5cm, minimum height=1.2cm, align=center, rounded corners=8pt, fill=green!5, draw=green!70, thick},
+    line/.style={draw, -latex, thick}
+]
+    \node [block] (frontend) {Next.js Frontend};
+    \node [block, right=2cm of frontend] (backend) {CivetWeb API};
+    \path [line] (frontend) -- (backend);
+\end{tikzpicture}
+\end{document}
