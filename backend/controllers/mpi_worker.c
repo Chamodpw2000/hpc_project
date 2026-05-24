@@ -27,11 +27,9 @@ void mpi_worker_loop(int rank, int world_size)
 
         if (cmd == MPI_CMD_CALC_SCORES) {
             mpi_worker_calc_scores(rank, world_size);
-        }
-        else if (cmd == MPI_CMD_CALC_CORR) {
+        } else if (cmd == MPI_CMD_CALC_CORR) {
             mpi_worker_calc_corr(rank, world_size);
-        }
-        else {
+        } else {
             printf("[MPI Worker %d] Unknown command: %d\n", rank, cmd);
         }
     }
