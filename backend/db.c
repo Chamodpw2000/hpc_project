@@ -60,7 +60,7 @@ db_connection_t* db_init(const char *connection_string, const char *db_name)
         mongoc_uri_set_option_as_int32(uri, MONGOC_URI_SOCKETTIMEOUTMS, 120000);
 
     /* Enable retryable reads & writes (guards against transient cluster errors) */
-    mongoc_uri_set_option_as_bool(uri, MONGOC_URI_RETRYREADS,  true);
+    mongoc_uri_set_option_as_bool(uri, MONGOC_URI_RETRYREADS, true);
     mongoc_uri_set_option_as_bool(uri, MONGOC_URI_RETRYWRITES, true);
 
     /* Create a thread-safe client pool */
