@@ -140,7 +140,7 @@ int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
     return SendJSONResponse(conn, "success", "Duplicate students removed", data);
 }
 
-/* ── Helper to extract query parameters ── */
+/* Helper to extract query parameters */
 static int get_thread_count(const struct mg_request_info *ri) {
     if (!ri->query_string) return 0;
     char buf[16] = "";
@@ -628,7 +628,7 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     return result;
 }
 
-/* ── MPI distributed score calculation ─────────────────────────────────── */
+/* MPI distributed score calculation */
 #ifdef ENABLE_MPI
 
 int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
