@@ -10,12 +10,10 @@
 
 #include "../include/civetweb.h"
 
-/* GET /api/data   – returns sample JSON data
- * POST /api/data  – echoes received payload */
+/* GET /api/data - returns sample JSON data; POST /api/data - echoes payload */
 int DataHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /api/test/{type}  – test scenarios:
- *   performance, error, delay, large-response */
+/* GET /api/test/{type} - executes various test scenarios (performance, error, delay, large-response) */
 int TestHandler(struct mg_connection *conn, void *cbdata);
 
 #endif /* DATA_CONTROLLER_H */
