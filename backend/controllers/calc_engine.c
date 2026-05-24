@@ -158,7 +158,7 @@ calc_result_t run_parallel(const double *scores, int n)
     return r;
 }
 
-/* ── Merge two sorted arrays into a new heap-allocated buffer ──────────── */
+/* Merge two sorted arrays into a new heap-allocated buffer */
 double* merge_sorted_arrays(const double *a, int na,
                             const double *b, int nb)
 {
@@ -172,11 +172,7 @@ double* merge_sorted_arrays(const double *a, int na,
     return res;
 }
 
-/* ── Thread argument structures ──────────────────────────────────────────
- * free(NULL) is defined behavior in C99 and is a no-op.
- * The cleanup loops below safely handle any worker that failed to allocate
- * its buffer without requiring verbose conditional checks.
- * ──────────────────────────────────────────────────────────────────────── */
+/* Thread argument structures for statistical computations */
 
 typedef struct {
     const double *scores;
@@ -198,7 +194,7 @@ typedef struct {
     int start, n;
 } calc_sort_thread_data_t;
 
-/* ── Thread worker functions ─────────────────────────────────────────── */
+/* Thread worker functions */
 
 static void* calc_stats_worker(void *arg)
 {
@@ -245,7 +241,7 @@ static void* calc_sort_worker(void *arg)
     return NULL;
 }
 
-/* ── POSIX-threads parallelised calculation ───────────────────────────── */
+/* POSIX-threads parallelized score statistics calculation */
 calc_result_t run_pthread(const double *scores, int n)
 {
     calc_result_t r;
@@ -270,7 +266,7 @@ calc_result_t run_pthread(const double *scores, int n)
     int chunk = n / T;
     int remainder = n % T;
 
-    /* ── Phase 1: spawn stats workers + sort workers simultaneously ── */
+    /* Phase 1: spawn stats workers and sort workers simultaneously */
     int offset = 0;
     for (int i = 0; i < T; i++) {
         int my_n = chunk + (i < remainder ? 1 : 0);
@@ -319,7 +315,7 @@ calc_result_t run_pthread(const double *scores, int n)
     }
     r.mean = r.sum / n;
 
-    /* ── Phase 2: spawn variance workers (needs mean from Phase 1) ── */
+    /* Phase 2: spawn variance workers (requires mean from Phase 1) */
     calc_var_thread_data_t *var_data =
         (calc_var_thread_data_t *)calloc((size_t)T, sizeof(calc_var_thread_data_t));
     if (!var_data) {
@@ -350,15 +346,10 @@ calc_result_t run_pthread(const double *scores, int n)
 
     free(var_data);
 
-    /* ── Hierarchical merge of sorted chunks for median ───────────── */
+    /* Hierarchical merge of sorted chunks for median calculation */
     double sort_start = omp_get_wtime();
 
-    /*
-     * sorted_final tracks the merged result across iterations.
-     * When T == 1, the loop body never runs. sorted_final stays
-     * equal to sort_data[0].sorted_buf and is NOT freed separately
-     * — it is freed by the worker-buffer cleanup loop at the end.
-     */
+    /* Merge sorted sub-arrays across threads */
     double *sorted_final = sort_data[0].sorted_buf;
     int sorted_n         = sort_data[0].n;
 
