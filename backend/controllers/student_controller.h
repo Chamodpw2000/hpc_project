@@ -11,6 +11,6 @@
 #include "../include/civetweb.h"
 
 /* Handles all /api/students and /api/students/{id} requests (GET, POST, PUT, DELETE) */
-int UsersHandler(struct mg_connection *conn, void *cbdata);
+int UsersHandler(struct mg_connection *conn, void *cb_data);
 
 #endif /* STUDENT_CONTROLLER_H */
