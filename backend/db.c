@@ -18,12 +18,7 @@
 #include <omp.h>
 #include <curl/curl.h>
 
-/*
- * mongoc_client_t is NOT thread-safe.  CivetWeb dispatches each request on a
- * different worker thread, but we share a single client across all db_*
- * functions.  This mutex serialises every database call so only one thread
- * touches the driver at a time – simple and safe.
- */
+/* Shared DB mutex to serialize MongoDB C driver calls across CivetWeb worker threads */
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define DB_LOCK()   pthread_mutex_lock(&db_mutex)
 #define DB_UNLOCK() pthread_mutex_unlock(&db_mutex)
