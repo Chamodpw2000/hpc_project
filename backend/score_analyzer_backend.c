@@ -225,7 +225,7 @@ int main(int argc, char *argv[])
     printf("\n=== Students Score Management Engine ===\n");
     printf("Server started on port %s\n", PORT);
     printf("\nAvailable endpoints:\n");
-    printf("  Welcome:         %s\n",                    HOST_INFO);
+    printf("  Welcome:         %s\n", HOST_INFO);
     printf("  Health Check:    %s%s\n",                  HOST_INFO, HEALTH_URI);
     printf("  Students API:    %s%s  (GET POST PUT DELETE)\n", HOST_INFO, USERS_URI);
     printf("  Student by ID:   %s/api/students/{id}\n",  HOST_INFO);
