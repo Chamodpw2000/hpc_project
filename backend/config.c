@@ -9,25 +9,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Trim whitespace from string */
+/* Helper to trim whitespace from a character array */
 static void trim(char *str)
 {
     if (!str) return;
     
-    /* Trim leading */
+    /* Trim leading whitespaces */
     char *start = str;
     while (*start && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) {
         start++;
     }
     
-    /* Trim trailing */
+    /* Trim trailing whitespaces */
     char *end = start + strlen(start) - 1;
     while (end > start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
         *end = '\0';
         end--;
     }
     
-    /* Move trimmed string to start */
+    /* Shift trimmed characters to the start */
     if (start != str) {
         memmove(str, start, strlen(start) + 1);
     }
