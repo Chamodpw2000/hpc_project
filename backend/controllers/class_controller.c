@@ -16,7 +16,7 @@
 /* Shared DB handle – defined in score_analyzer_backend.c */
 extern db_connection_t *global_db;
 
-/* ── internal helper: extract a quoted JSON string value ── */
+/* Internal helper: extract a quoted JSON string value */
 static char *extract_json_str(const char *json, const char *key)
 {
     char search[256];
@@ -37,7 +37,7 @@ static char *extract_json_str(const char *json, const char *key)
     return val;
 }
 
-/* ── internal helper: URL-decode a single %XX sequence in-place ── */
+/* Internal helper: URL-decode a single %XX sequence in-place */
 static void url_decode(const char *src, char *dst, size_t dst_size)
 {
     size_t i = 0;
@@ -56,7 +56,7 @@ static void url_decode(const char *src, char *dst, size_t dst_size)
     dst[i] = '\0';
 }
 
-/* ── helper: get query param value from URI ── */
+/* Helper: extract query parameter value from URI */
 static int get_query_param(const char *query_string, const char *param,
                             char *out, size_t out_size)
 {
@@ -98,7 +98,7 @@ int ClassHandler(struct mg_connection *conn, void *cbdata)
         url_decode(url + 13, class_name, sizeof(class_name));
     }
 
-    /* ── GET: list all classes ── */
+    /* GET: retrieve all classes list */
     if (strcmp(ri->request_method, "GET") == 0) {
         char *list = db_get_all_classes(global_db);
         int rc = SendJSONResponse(conn, "success", "Classes retrieved successfully", list);
@@ -106,7 +106,7 @@ int ClassHandler(struct mg_connection *conn, void *cbdata)
         return rc;
     }
 
-    /* ── POST: create class ── */
+    /* POST: handle class creation */
     if (strcmp(ri->request_method, "POST") == 0) {
         char buf[512];
         int  dlen = mg_read(conn, buf, sizeof(buf) - 1);
@@ -131,7 +131,7 @@ int ClassHandler(struct mg_connection *conn, void *cbdata)
         return SendJSONResponse(conn, "success", "Class created successfully", resp);
     }
 
-    /* ── DELETE: /api/classes/{name} ── */
+    /* DELETE: handle class removal */
     if (strcmp(ri->request_method, "DELETE") == 0) {
         if (class_name[0] == '\0')
             return SendErrorResponse(conn, 400, "Class name required in URL");
@@ -143,7 +143,7 @@ int ClassHandler(struct mg_connection *conn, void *cbdata)
         return 204;
     }
 
-    /* ── PUT: /api/classes/{name}  body: { "name": "new_name" } ── */
+    /* PUT: handle class renaming */
     if (strcmp(ri->request_method, "PUT") == 0) {
         if (class_name[0] == '\0')
             return SendErrorResponse(conn, 400, "Class name required in URL");
