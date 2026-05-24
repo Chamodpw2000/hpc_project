@@ -73,11 +73,11 @@ calc_result_t run_mpi(const double *scores, int n, int req_procs)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    /* ── Determine effective process count ── */
+    /* Determine effective process count */
     int use_size = (req_procs > 0 && req_procs <= world_size) ? req_procs : world_size;
     MPI_Bcast(&use_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    /* ── Split communicator — excluded ranks receive MPI_COMM_NULL ── */
+    /* Split communicator (excluded ranks receive MPI_COMM_NULL) */
     int color = (rank < use_size) ? 0 : MPI_UNDEFINED;
     MPI_Comm sub_comm;
     MPI_Comm_split(MPI_COMM_WORLD, color, rank, &sub_comm);
