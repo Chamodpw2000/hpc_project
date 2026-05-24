@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <time.h>
 
-/* Shared request counter – defined (and incremented) here */
+/* Shared request counter, incremented with each JSON response sent */
 unsigned requestCounter = 0;
 
 int SendJSONResponse(struct mg_connection *conn,
