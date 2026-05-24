@@ -1,17 +1,4 @@
-/*
- * Correlation Controller
- * Handles GET /api/calculate/correlation/serial|parallel|compare
- *
- * Required query parameters:
- *   subject1, class1  – first subject + its class
- *   subject2, class2  – second subject + its class
- *
- * Example:
- *   GET /api/calculate/correlation/serial?subject1=Math&class1=A&subject2=Science&class2=A
- *
- * Copyright (c) 2026
- * MIT License
- */
+/* Correlation Controller: handles serial, parallel, pthread, and MPI correlation calculations. */
 
 #include "correlation_controller.h"
 #include "correlation_engine.h"
@@ -50,7 +37,7 @@ static int cc_buf_append(char **buf, size_t *len, size_t *cap, const char *src)
     return 1;
 }
 
-/* ── Parse a single query parameter (URL-decoded by mg_get_var) ── */
+/* Parse a single URL-decoded query parameter */
 static int get_param(const char *qs, size_t qs_len,
                      const char *name, char *out, size_t out_sz)
 {
@@ -66,10 +53,7 @@ static int get_thread_count(const struct mg_request_info *ri) {
     return (t > 0 && t <= 256) ? t : 0;
 }
 
-/* ── Shared: parse params + fetch pairs ──
- * n_threads == 1  → sequential db_get_paired_scores
- * n_threads >= 2  → parallel   db_get_paired_scores_parallel
- */
+/* Parse request params and fetch scores pairs (handles sequential or parallel fetch) */
 static score_pair_t* prepare_pairs(struct mg_connection *conn,
                                     int *out_n, double *out_fetch_ms,
                                     int *out_total_students, int *out_excluded,
@@ -114,7 +98,7 @@ static score_pair_t* prepare_pairs(struct mg_connection *conn,
     return pairs;
 }
 
-/* ── GET /api/calculate/correlation/serial ── */
+/* GET /api/calculate/correlation/serial */
 int CorrSerialHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -158,7 +142,7 @@ int CorrSerialHandler(struct mg_connection *conn, void *cbdata)
     return ret;
 }
 
-/* ── GET /api/calculate/correlation/parallel ── */
+/* GET /api/calculate/correlation/parallel */
 int CorrParallelHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -204,7 +188,7 @@ int CorrParallelHandler(struct mg_connection *conn, void *cbdata)
     return ret;
 }
 
-/* ── GET /api/calculate/correlation/pthread ── */
+/* GET /api/calculate/correlation/pthread */
 int CorrPthreadHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -250,7 +234,7 @@ int CorrPthreadHandler(struct mg_connection *conn, void *cbdata)
     return ret;
 }
 
-/* ── GET /api/calculate/correlation/compare ── */
+/* GET /api/calculate/correlation/compare */
 int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -405,7 +389,7 @@ int CorrCompareHandler(struct mg_connection *conn, void *cbdata)
     return ret;
 }
 
-/* ── MPI distributed correlation ───────────────────────────────────────── */
+/* MPI distributed correlation handlers */
 #ifdef ENABLE_MPI
 #include "correlation_mpi.h"
 #include "calc_mpi.h"   /* MPI_CMD_* */
@@ -464,12 +448,7 @@ int CorrMpiHandler(struct mg_connection *conn, void *cbdata)
 }
 #endif /* ENABLE_MPI */
 
-/* ── Parallel fetch infrastructure ────────────────────────────────────────
- * Each subject's paired scores are fetched by its own pthread.
- * The MongoDB C driver is not thread-safe on a single client, so a mutex
- * serialises the actual driver call while still allowing the OS to overlap
- * network/disk wait times across threads.
- * ──────────────────────────────────────────────────────────────────────── */
+/* Parallel fetch infrastructure using helper threads */
 typedef struct {
     const char   *ref_subject;
     const char   *class_name;
@@ -524,11 +503,7 @@ static void *fetch_subject_worker(void *arg)
     return NULL;
 }
 
-/* ── GET /api/calculate/correlation/all-subjects ──────────────────────────
- * Phase 1 — N pthreads fetch every subject's paired scores in parallel.
- * Phase 2 — per subject: Serial (1 thread), OpenMP, Pthreads, MPI (opt).
- * Query params: class, subject (reference), openmp_threads, pthread_threads
- * ──────────────────────────────────────────────────────────────────────── */
+/* GET /api/calculate/correlation/all-subjects */
 int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -771,12 +746,7 @@ int CorrAllSubjectsHandler(struct mg_connection *conn, void *cbdata)
     return ret;
 }
 
-/* ── GET /api/calculate/correlation/all-subjects-method ───────────────────
- * Single-method variant: fetches using method-appropriate parallelism then
- * runs only the requested calculation method.
- * Required: class, subject, method (serial|parallel|pthread|mpi)
- * Optional: openmp_threads, pthread_threads, mpi_processes
- * ──────────────────────────────────────────────────────────────────────── */
+/* GET /api/calculate/correlation/all-subjects-method */
 int CorrAllSubjectsMethodHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -859,7 +829,7 @@ int CorrAllSubjectsMethodHandler(struct mg_connection *conn, void *cbdata)
         fi++;
     }
 
-    /* ── Phase 1: fetch all subjects concurrently ─────────────────────── */
+    /* Phase 1: fetch all subjects concurrently */
     double t_fetch_start = omp_get_wtime();
     for (int i = 0; i < fetch_count; i++)
         pthread_create(&fthreads[i], NULL, fetch_subject_worker, &tasks[i]);
@@ -868,7 +838,7 @@ int CorrAllSubjectsMethodHandler(struct mg_connection *conn, void *cbdata)
     double fetch_phase_ms = (omp_get_wtime() - t_fetch_start) * 1000.0;
     free(fthreads);
 
-    /* ── Phase 2: run selected method on each subject ─────────────────── */
+    /* Phase 2: run selected method on each subject */
     int    is_mpi    = strcmp(method_str, "mpi")      == 0;
     int    is_par    = strcmp(method_str, "parallel")  == 0;
     int    is_pt     = strcmp(method_str, "pthread")   == 0;
