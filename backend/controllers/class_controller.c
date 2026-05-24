@@ -133,7 +133,7 @@ int ClassHandler(struct mg_connection *conn, void *cbdata)
 
     /* DELETE: handle class removal */
     if (strcmp(ri->request_method, "DELETE") == 0) {
-        if (class_name[0] == '\0')
+        if (!class_name[0])
             return SendErrorResponse(conn, 400, "Class name required in URL");
 
         if (!db_delete_class(global_db, class_name))
