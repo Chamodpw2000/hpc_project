@@ -16,9 +16,7 @@
 /* Shared DB handle – defined in score_analyzer_backend.c */
 extern db_connection_t *global_db;
 
-/* ---------------------------------------------------------------------------
- * Internal helper: URL-decode a string in-place
- * --------------------------------------------------------------------------*/
+/* Internal helper: URL-decode a string in-place */
 static void url_decode_stu(const char *src, char *dst, size_t dst_size)
 {
     size_t i = 0;
@@ -37,9 +35,7 @@ static void url_decode_stu(const char *src, char *dst, size_t dst_size)
     dst[i] = '\0';
 }
 
-/* ---------------------------------------------------------------------------
- * Internal helper: get a query-string parameter value
- * --------------------------------------------------------------------------*/
+/* Internal helper: get a query-string parameter value */
 static int get_query_param_stu(const char *query_string, const char *param,
                                 char *out, size_t out_size)
 {
@@ -59,10 +55,7 @@ static int get_query_param_stu(const char *query_string, const char *param,
     return (out[0] != '\0') ? 1 : 0;
 }
 
-/* ---------------------------------------------------------------------------
- * Internal helper: extract a quoted string value from a flat JSON object.
- * Caller must free() the returned string.
- * --------------------------------------------------------------------------*/
+/* Internal helper: extract a quoted string value from a flat JSON object (caller must free) */
 static char *extract_json_value(const char *json, const char *key)
 {
     char search_key[256];
@@ -87,10 +80,7 @@ static char *extract_json_value(const char *json, const char *key)
     return value;
 }
 
-/* ---------------------------------------------------------------------------
- * Internal helper: extract a numeric value from a flat JSON object.
- * Returns 1 on success, 0 on failure.
- * --------------------------------------------------------------------------*/
+/* Internal helper: extract a numeric value from a flat JSON object */
 static int extract_json_number(const char *json, const char *key, double *out)
 {
     char search_key[256];
