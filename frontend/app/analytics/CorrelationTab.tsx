@@ -105,7 +105,7 @@ type AllDisplayMode = "serial" | "parallel" | "pthread" | "mpi" | "compare" | nu
 
 const API = "http://localhost:8090";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 function correlationLabel(r: number): { label: string; color: string } {
   const abs = Math.abs(r);
@@ -122,7 +122,7 @@ function directionLabel(r: number): string {
 }
 
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// Sub-components
 
 function BestFitLineChart({ slope, intercept, color, refSubject, subject }: Readonly<{
   slope: number;
@@ -275,7 +275,7 @@ function CorrelationPanel({ result, borderColor, subject1Name, subject2Name, cha
   );
 }
 
-// ── One vs All — subject card for a single method (individual run mode) ───────
+// Subject result card for a single method (individual run mode)
 
 const METHOD_CFG = {
   serial:   { border: "border-blue-700",   chart: "#3b82f6", name: "Serial",            unit: "thread",    unitPlural: "threads"   },
@@ -332,7 +332,7 @@ function SubjectResultCard({ s, method, refSubject }: Readonly<{
   );
 }
 
-// ── One vs All — per-method card inside a compare subject section (no timing) ─
+// Per-method card inside a compare subject section (no timing)
 
 function CompareMethodCard({ entry, method, nPairs, subject, refSubject }: Readonly<{
   entry: MethodEntry;
@@ -371,7 +371,7 @@ function CompareMethodCard({ entry, method, nPairs, subject, refSubject }: Reado
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// Main component
 
 const SELECT_CLS =
   "bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm " +
@@ -412,7 +412,7 @@ export default function CorrelationTab() {
   // non-null only when "Compare All" (separate-fetch) produced the current result
   const [allMethodFetchMs, setAllMethodFetchMs]   = useState<{serial:number;parallel:number;pthread:number;mpi?:number} | null>(null);
 
-  // ── Fetch classes on mount ──
+  // Fetch classes on mount
   useEffect(() => {
     async function loadClasses() {
       setLoadingClasses(true);
@@ -436,7 +436,7 @@ export default function CorrelationTab() {
   // null = loading; [] = loaded/empty; [...] = loaded with data
   const loadingSubjects = subjects === null;
 
-  // ── Fetch subjects when selectedClass changes ──
+  // Fetch subjects when selectedClass changes
   useEffect(() => {
     if (!selectedClass) { setSubjects([]); setSubject1(""); setSubject2(""); setRefSubject(""); return; }
     setSubjects(null);
@@ -456,7 +456,7 @@ export default function CorrelationTab() {
     }
   }, [subjects]);
 
-  // ── Button handlers ──
+  // Button handlers
   function buildParams() {
     return new URLSearchParams({
       subject1, class1: selectedClass,
@@ -725,7 +725,7 @@ export default function CorrelationTab() {
 
   return (
     <>
-      {/* ── Mode Switcher ── */}
+      {/* Mode Switcher */}
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setMode("pair")}
@@ -749,7 +749,7 @@ export default function CorrelationTab() {
         </button>
       </div>
 
-      {/* ── PAIR ANALYSIS MODE ── */}
+      {/* Pair Analysis Mode */}
       {mode === "pair" && (
         <>
           {/* Subject Selectors */}
