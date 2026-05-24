@@ -10,23 +10,23 @@
 
 #include "../include/civetweb.h"
 
-/* POST /api/seed – seed dummy student/score data into MongoDB */
+/* POST /api/seed - seed dummy student/score data into MongoDB */
 int SeedHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /api/calculate/serial   – run serial statistical analysis */
+/* GET /api/calculate/serial - run serial statistical analysis */
 int CalcSerialHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /api/calculate/parallel – run OpenMP-parallel statistical analysis */
+/* GET /api/calculate/parallel - run OpenMP-parallel statistical analysis */
 int CalcParallelHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /api/calculate/compare  – run both and return a side-by-side comparison */
+/* GET /api/calculate/compare - run statistical comparisons */
 int CalcCompareHandler(struct mg_connection *conn, void *cbdata);
 int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /api/calculate/pthread – run pthreads-parallel statistical analysis */
+/* GET /api/calculate/pthread - run pthreads-parallel statistical analysis */
 int CalcPthreadHandler(struct mg_connection *conn, void *cbdata);
 
-/* DELETE /api/students/remove-duplicates – remove duplicate student records and their scores */
+/* DELETE /api/students/remove-duplicates - remove duplicate student records */
 int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata);
 
 #ifdef ENABLE_MPI
