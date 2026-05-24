@@ -10,25 +10,16 @@
 
 #include "../include/civetweb.h"
 
-/* Shared counters - defined in score_analyzer_backend.c */
+/* Shared global request counter */
 extern unsigned requestCounter;
 
-/*
- * Send a standard JSON success response.
- *   status  – e.g. "success", "running", "healthy"
- *   message – human-readable message
- *   data    – raw JSON fragment to embed under "data" key (may be NULL)
- * Returns HTTP status code (200).
- */
+/* Send a standard JSON success response (status, message, raw data) */
 int SendJSONResponse(struct mg_connection *conn,
                      const char *status,
                      const char *message,
                      const char *data);
 
-/*
- * Send a JSON error response with the given HTTP status code.
- * Returns the status_code passed in.
- */
+/* Send a JSON error response with status code */
 int SendErrorResponse(struct mg_connection *conn,
                       int status_code,
                       const char *message);
