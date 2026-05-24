@@ -27,7 +27,7 @@
 #include <omp.h>
 #include <mpi.h>
 
-/* ── Helper: compute sendcounts and displacements ── */
+/* Helper: compute sendcounts and displacements */
 static void compute_pair_distribution(int n, int world_size,
                                        int *sendcounts, int *displs)
 {
@@ -39,7 +39,7 @@ static void compute_pair_distribution(int n, int world_size,
     }
 }
 
-/* ── Create an MPI_Datatype for score_pair_t (two contiguous doubles) ── */
+/* Create an MPI_Datatype for score_pair_t (two contiguous doubles) */
 static MPI_Datatype create_pair_type(void)
 {
     MPI_Datatype pair_type;
