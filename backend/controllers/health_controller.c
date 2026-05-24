@@ -10,11 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 
-/* These are defined in score_analyzer_backend.c */
+/* Port and host settings defined in score_analyzer_backend.c */
 #define PORT      "8090"
 #define HOST_INFO "http://localhost:8090"
 
-/* Defined in civetweb.h / linked from civetweb.c */
+/* Civetweb version macro fallback definition */
 #ifndef CIVETWEB_VERSION
 #define CIVETWEB_VERSION "unknown"
 #endif
