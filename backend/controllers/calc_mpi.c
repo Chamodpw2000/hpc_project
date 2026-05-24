@@ -28,7 +28,7 @@
 #include <omp.h>
 #include <mpi.h>
 
-/* ── Helper: compute sendcounts and displacements for Scatterv/Gatherv ── */
+/* Helper: compute sendcounts and displacements for MPI collectives */
 static void compute_distribution(int n, int world_size,
                                   int *sendcounts, int *displs)
 {
@@ -40,7 +40,7 @@ static void compute_distribution(int n, int world_size,
     }
 }
 
-/* ── Helper: comparison function for qsort (ascending doubles) ── */
+/* Helper: comparison function for ascending doubles sort */
 static int cmp_double(const void *a, const void *b)
 {
     double da = *(const double *)a;
@@ -48,7 +48,7 @@ static int cmp_double(const void *a, const void *b)
     return (da > db) - (da < db);
 }
 
-/* ── Helper: merge two sorted arrays into a new heap-allocated buffer ── */
+/* Helper: merge two sorted arrays into a new buffer */
 static double *merge_two_sorted(const double *a, int na, const double *b, int nb)
 {
     double *out = (double *)malloc(sizeof(double) * (size_t)(na + nb));
