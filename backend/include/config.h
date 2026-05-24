@@ -14,10 +14,10 @@ typedef struct {
     int loaded;
 } config_t;
 
-/* Load configuration from config.env file */
+/* Load configuration from config environment file */
 config_t* config_load(const char *filename);
 
-/* Free configuration */
+/* Free configuration structure */
 void config_free(config_t *config);
 
 /* Get environment variable or default */
