@@ -10,7 +10,7 @@ test_server
 # Configuration (contains sensitive data)
 config.env
 
-# IDE
+# Editor / IDE metadata
 .vscode/
 .idea/
 *.swp
