@@ -17,7 +17,7 @@
 #include <string.h>
 #include <time.h>
 
-/* ---- GET/POST /api/data ------------------------------------------------ */
+/* GET/POST /api/data */
 int DataHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -52,7 +52,7 @@ int DataHandler(struct mg_connection *conn, void *cbdata)
         "Only GET and POST methods supported for data endpoint");
 }
 
-/* ---- GET /api/test/{type} ---------------------------------------------- */
+/* GET /api/test/{type} */
 int TestHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -60,7 +60,7 @@ int TestHandler(struct mg_connection *conn, void *cbdata)
     const char                   *url = ri->local_uri;
     char test_type[256] = "";
 
-    /* Extract test type from URL: /api/test/{type} */
+    /* Extract test type parameter from URI path */
     if (strncmp(url, "/api/test/", 10) == 0) {
         const char *type_start = url + 10;
         if (*type_start != '\0') {
@@ -71,7 +71,7 @@ int TestHandler(struct mg_connection *conn, void *cbdata)
 
     printf("Test API: %s %s (type: %s)\n", ri->request_method, url, test_type);
 
-    /* No type – list available tests */
+    /* If no type provided, return available scenarios list */
     if (strlen(test_type) == 0) {
         const char *available =
             "[\n"
@@ -83,11 +83,11 @@ int TestHandler(struct mg_connection *conn, void *cbdata)
         return SendJSONResponse(conn, "success", "Available test endpoints", available);
     }
 
-    /* --- error --- */
+    /* Test error scenario */
     if (strcmp(test_type, "error") == 0)
         return SendErrorResponse(conn, 500, "This is a test error response");
 
-    /* --- delay --- */
+    /* Test response delay scenario */
     if (strcmp(test_type, "delay") == 0) {
         printf("Simulating delay...\n");
 #ifdef _WIN32
@@ -98,7 +98,7 @@ int TestHandler(struct mg_connection *conn, void *cbdata)
         return SendJSONResponse(conn, "success", "Delayed response completed", "null");
     }
 
-    /* --- large-response --- */
+    /* Test large payload scenario */
     if (strcmp(test_type, "large-response") == 0) {
         char large_data[4096];
         snprintf(large_data, sizeof(large_data),
@@ -111,7 +111,7 @@ int TestHandler(struct mg_connection *conn, void *cbdata)
         return SendJSONResponse(conn, "success", "Large response generated", large_data);
     }
 
-    /* --- performance --- */
+    /* Test performance benchmark scenario */
     if (strcmp(test_type, "performance") == 0) {
         clock_t      start    = clock();
         volatile int dummy    = 0;
