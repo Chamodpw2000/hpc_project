@@ -51,7 +51,7 @@ corr_result_t run_corr_parallel(const score_pair_t *pairs, int n)
     double sum_x = 0.0, sum_y = 0.0, sum_xy = 0.0, sum_x2 = 0.0, sum_y2 = 0.0;
 
     #pragma omp parallel for \
-        reduction(+:sum_x,sum_y,sum_xy,sum_x2,sum_y2) \
+        reduction(+:sum_x, sum_y, sum_xy, sum_x2, sum_y2) \
         schedule(static)
     for (int i = 0; i < n; i++) {
         sum_x  += pairs[i].x;
