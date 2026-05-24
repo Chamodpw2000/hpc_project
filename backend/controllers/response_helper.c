@@ -19,9 +19,9 @@ int SendJSONResponse(struct mg_connection *conn,
                      const char *message,
                      const char *data)
 {
-    size_t data_len  = data ? strlen(data) : 0;
-    size_t buf_size  = 512 + data_len;
-    char  *response  = (char *)malloc(buf_size);
+    size_t data_len = data ? strlen(data) : 0;
+    size_t buf_size = 512 + data_len;
+    char *response = (char *)malloc(buf_size);
     if (!response) return 500;
 
     time_t now = time(NULL);
