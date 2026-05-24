@@ -1,15 +1,4 @@
-/*
- * Correlation Calculation Engine
- * Serial and OpenMP-parallel Pearson r using the single-pass computational formula:
- *
- *        n·Σ(xᵢyᵢ) − Σxᵢ · Σyᵢ
- *   r = ──────────────────────────────────────────────────
- *       √[(n·Σxᵢ² − (Σxᵢ)²) · (n·Σyᵢ² − (Σyᵢ)²)]
- *
- * Five running sums are accumulated in a single O(n) pass.
- * Copyright (c) 2026
- * MIT License
- */
+/* Pearson Correlation Engine: Calculates Pearson r using single-pass running sums. */
 
 #include "correlation_engine.h"
 
@@ -85,7 +74,7 @@ corr_result_t run_corr_parallel(const score_pair_t *pairs, int n)
     return r;
 }
 
-/* ── POSIX-threads (pthreads) Pearson correlation ──────────────────────── */
+/* POSIX-threads (pthreads) Pearson correlation implementation */
 
 #include <pthread.h>
 
