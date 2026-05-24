@@ -10,10 +10,10 @@
 
 #include "../include/civetweb.h"
 
-/* GET /  – welcome page */
+/* GET / - welcome page endpoint */
 int RootHandler(struct mg_connection *conn, void *cbdata);
 
-/* GET /health  – server liveness check */
+/* GET /health - server liveness check endpoint */
 int HealthHandler(struct mg_connection *conn, void *cbdata);
 
 #endif /* HEALTH_CONTROLLER_H */
