@@ -10,19 +10,10 @@
 
 #include "../include/civetweb.h"
 
-/*
- * GET    /api/classes        – list all classes (JSON array of strings)
- * POST   /api/classes        – create class  { "name": "..." }
- * DELETE /api/classes/{name} – delete a class
- */
+/* GET /api/classes - list classes; POST /api/classes - create class; DELETE /api/classes/{name} - delete class */
 int ClassHandler(struct mg_connection *conn, void *cbdata);
 
-/*
- * GET    /api/subjects                    – list all subjects
- * GET    /api/subjects?class={name}       – list subjects for a class
- * POST   /api/subjects                    – create subject { "name": "...", "class_name": "..." }
- * DELETE /api/subjects/{name}?class={cn}  – delete a subject
- */
+/* GET /api/subjects - list subjects; POST /api/subjects - create subject; DELETE /api/subjects/{name} - delete subject */
 int SubjectHandler(struct mg_connection *conn, void *cbdata);
 
 #endif /* CLASS_CONTROLLER_H */
