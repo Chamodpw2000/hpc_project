@@ -87,7 +87,7 @@ static void parallel_merge_sort(double *arr, int l, int r, int depth)
     int m = l + (r - l) / 2;
 
     if (depth < 4) {
-        #pragma omp task shared(arr) if(depth < 4)
+        #pragma omp task shared(arr) if (depth < 4)
         parallel_merge_sort(arr, l, m, depth + 1);
         #pragma omp task shared(arr) if(depth < 4)
         parallel_merge_sort(arr, m + 1, r, depth + 1);
