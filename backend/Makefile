@@ -122,7 +122,7 @@ watch:
 	@sleep 0.5
 	@find . -name "*.c" -o -path "./include/*.h" | entr -r make run
 
-# ── MPI build targets ────────────────────────────────────────────────────
+# MPI build targets
 
 controllers/calc_mpi.o: controllers/calc_mpi.c controllers/calc_mpi.h controllers/calc_engine.h
 	$(MPICC) $(MPI_CFLAGS) -c $< -o $@
