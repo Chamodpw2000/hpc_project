@@ -10,8 +10,8 @@
 typedef struct {
     char mongodb_uri[512];
     char db_name[128];
-    int port;
-    int loaded;
+    int  port;
+    int  loaded;
 } config_t;
 
 /* Load configuration from config environment file */
