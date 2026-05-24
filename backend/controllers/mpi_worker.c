@@ -1,15 +1,4 @@
-/*
- * MPI Worker Loop — Implementation
- * Worker ranks sit blocked on MPI_Bcast until Rank 0 sends a command.
- *
- * Commands:
- *   MPI_CMD_SHUTDOWN    (0) — exit the loop
- *   MPI_CMD_CALC_SCORES (1) — participate in score statistics reduction
- *   MPI_CMD_CALC_CORR   (2) — participate in correlation reduction
- *
- * Copyright (c) 2026
- * MIT License
- */
+/* MPI Worker Loop: implementation of daemon loop blocking on MPI_Bcast waiting for rank 0 commands. */
 
 #ifdef ENABLE_MPI
 
@@ -28,7 +17,7 @@ void mpi_worker_loop(int rank, int world_size)
     while (1) {
         int cmd = 0;
 
-        /* Block until Rank 0 broadcasts a command */
+        /* Block on MPI broadcast waiting for command */
         MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
         if (cmd == MPI_CMD_SHUTDOWN) {
