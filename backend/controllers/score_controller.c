@@ -117,7 +117,7 @@ int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
     (void)cbdata;
     const struct mg_request_info *ri = mg_get_request_info(conn);
 
-    if (strcmp(ri->request_method, "DELETE") != 0)
+    if (strcmp(ri->request_method, "DELETE"))
         return SendErrorResponse(conn, 405, "Only DELETE method supported");
 
     if (!global_db)
