@@ -1,9 +1,4 @@
-/*
- * Score Analyzer Backend – Entry Point
- * Registers routes and runs the CivetWeb server.
- * Copyright (c) 2026
- * MIT License
- */
+/* Score Analyzer Backend: Entry point for registering API endpoints and starting CivetWeb. */
 
 #ifdef _WIN32
 #include <windows.h>
@@ -37,11 +32,11 @@
 #include "controllers/mpi_worker.h"
 #endif
 
-/* ---- Server constants -------------------------------------------------- */
+/* Server constants */
 #define PORT      "8090"
 #define HOST_INFO "http://localhost:8090"
 
-/* ---- API endpoint URIs ------------------------------------------------- */
+/* API endpoint URIs */
 #define ROOT_URI          "/"
 #define HEALTH_URI        "/health"
 #define API_URI           "/api/*"
@@ -58,14 +53,14 @@
 #define CLASSES_URI       "/api/classes"
 #define SUBJECTS_URI      "/api/subjects"
 
-/* ---- Shared globals ---------------------------------------------------- */
+/* Shared globals */
 int              exitNow   = 0;
 db_connection_t *global_db = NULL;
 pthread_mutex_t  calc_lock = PTHREAD_MUTEX_INITIALIZER;
 int              g_num_threads = 4;   /* pthread worker count, set in main() */
 /* requestCounter is defined in controllers/response_helper.c */
 
-/* ---- Shutdown handler -------------------------------------------------- */
+/* Server shutdown request handler */
 static int ExitHandler(struct mg_connection *conn, void *cbdata)
 {
     (void)cbdata;
@@ -81,7 +76,7 @@ static int ExitHandler(struct mg_connection *conn, void *cbdata)
     return 1;
 }
 
-/* ---- Catch-all API router --------------------------------------------- */
+/* Catch-all API endpoint router */
 static int ApiHandler(struct mg_connection *conn, void *cbdata)
 {
     const struct mg_request_info *ri  = mg_get_request_info(conn);
@@ -101,7 +96,7 @@ static int ApiHandler(struct mg_connection *conn, void *cbdata)
     return SendErrorResponse(conn, 404, "API endpoint not found");
 }
 
-/* ---- CivetWeb log callback -------------------------------------------- */
+/* CivetWeb server log callback */
 static int log_message(const struct mg_connection *conn, const char *message)
 {
     (void)conn;
@@ -109,7 +104,7 @@ static int log_message(const struct mg_connection *conn, const char *message)
     return 1;
 }
 
-/* ======================================================================== */
+/* Main backend entry point */
 int main(int argc, char *argv[])
 {
 #ifdef ENABLE_MPI
