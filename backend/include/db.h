@@ -66,6 +66,10 @@ int db_seed_dummy_data(db_connection_t *db, int num_students, int scores_per_stu
 /* Fetch scores as a raw double array, optionally filtered by class and subject */
 double* db_get_scores_array(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count);
 
+/* Parallel variant: n_threads pool connections fetch skip/limit chunks concurrently.
+ * Falls back to db_get_scores_array() when n_threads <= 1. */
+double* db_get_scores_array_parallel(db_connection_t *db, const char *class_filter, const char *subject_filter, int *out_count, int n_threads);
+
 /* Get total count of scores */
 int db_get_scores_count(db_connection_t *db);
 
@@ -98,5 +102,15 @@ int db_get_paired_scores(db_connection_t *db,
                          score_pair_t **out_pairs, int *out_count,
                          int *out_total_students, int *out_excluded,
                          double *out_fetch_ms);
+
+/* Parallel variant: fetches subject1 and subject2 scores simultaneously.
+ * Falls back to db_get_paired_scores() when n_threads < 2. */
+int db_get_paired_scores_parallel(db_connection_t *db,
+                                   const char *subject1, const char *class1,
+                                   const char *subject2, const char *class2,
+                                   score_pair_t **out_pairs, int *out_count,
+                                   int *out_total_students, int *out_excluded,
+                                   double *out_fetch_ms,
+                                   int n_threads);
 
 #endif /* DB_H */

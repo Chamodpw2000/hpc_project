@@ -20,6 +20,7 @@
 #endif
 
 extern db_connection_t *global_db;
+extern int g_num_threads;
 
 static int buf_append(char **buf, size_t *len, size_t *cap, const char *src)
 {
@@ -140,6 +141,14 @@ int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata)
 }
 
 /* ── Helper to extract query parameters ── */
+static int get_thread_count(const struct mg_request_info *ri) {
+    if (!ri->query_string) return 0;
+    char buf[16] = "";
+    mg_get_var(ri->query_string, strlen(ri->query_string), "threads", buf, sizeof(buf));
+    int t = atoi(buf);
+    return (t > 0 && t <= 256) ? t : 0;
+}
+
 static void get_filter_params(const struct mg_request_info *ri, char *cls, size_t clen, char *sub, size_t slen) {
     cls[0] = '\0';
     sub[0] = '\0';
@@ -211,6 +220,7 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
     get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
     const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
     const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+    int req_threads = get_thread_count(ri);
 
     int     count  = 0;
 
@@ -221,8 +231,9 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int fetch_threads = req_threads > 0 ? req_threads : omp_get_max_threads();
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
+    double *scores = db_get_scores_array_parallel(global_db, c_ptr, s_ptr, &count, fetch_threads);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -231,8 +242,11 @@ int CalcParallelHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    int prev = omp_get_max_threads();
+    if (req_threads > 0) omp_set_num_threads(req_threads);
     calc_result_t r = run_parallel(scores, count);
-    
+    omp_set_num_threads(prev);
+
     pthread_mutex_unlock(&calc_lock);
     free(scores);
 
@@ -256,6 +270,7 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata)
     get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
     const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
     const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+    int req_threads = get_thread_count(ri);
 
     int     count  = 0;
 
@@ -266,8 +281,9 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int fetch_threads = req_threads > 0 ? req_threads : g_num_threads;
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
+    double *scores = db_get_scores_array_parallel(global_db, c_ptr, s_ptr, &count, fetch_threads);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -276,7 +292,10 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata)
             "No scores in database. POST /api/seed first.");
     }
 
+    int saved_threads = g_num_threads;
+    if (req_threads > 0) g_num_threads = req_threads;
     calc_result_t r = run_pthread(scores, count);
+    g_num_threads = saved_threads;
 
     pthread_mutex_unlock(&calc_lock);
     free(scores);
@@ -307,6 +326,7 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
 
     int     count  = 0;
+    int req_threads = get_thread_count(ri);
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -315,8 +335,9 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
         return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
     }
 
+    int fetch_threads = req_threads > 0 ? req_threads : omp_get_max_threads();
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
+    double *scores = db_get_scores_array_parallel(global_db, c_ptr, s_ptr, &count, fetch_threads);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -326,24 +347,41 @@ int CalcCompareHandler(struct mg_connection *conn, void *cbdata)
     }
 
     int prev = omp_get_max_threads();
+    int saved_threads = g_num_threads;
     omp_set_num_threads(1);
     calc_result_t serial = run_serial(scores, count);
-    omp_set_num_threads(prev);
 
+    if (req_threads > 0) {
+        omp_set_num_threads(req_threads);
+        g_num_threads = req_threads;
+    } else {
+        omp_set_num_threads(prev);
+    }
     calc_result_t parallel = run_parallel(scores, count);
     calc_result_t pt_res   = run_pthread(scores, count);
+    omp_set_num_threads(prev);
+    g_num_threads = saved_threads;
 
-#ifdef ENABLE_MPI
-    int cmd = MPI_CMD_CALC_SCORES;
-    MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    calc_result_t mpi_res = run_mpi(scores, count);
-    double mpi_time_ms = mpi_res.elapsed_ms;
-    double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
-    int mpi_threads = mpi_res.threads_used;
-#else
+    /* Parse optional MPI process count */
+    const char *cmp_qs = ri->query_string ? ri->query_string : "";
+    char cmp_mpi_str[16] = "";
+    mg_get_var(cmp_qs, strlen(cmp_qs), "mpi_processes", cmp_mpi_str, sizeof(cmp_mpi_str));
+    int cmp_req_mpi = atoi(cmp_mpi_str);
+
     double mpi_time_ms = 0.0;
     double speedup_mpi = 0.0;
     int mpi_threads = 0;
+#ifdef ENABLE_MPI
+    calc_result_t mpi_res;
+    memset(&mpi_res, 0, sizeof(mpi_res));
+    {
+        int cmd = MPI_CMD_CALC_SCORES;
+        MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        mpi_res = run_mpi(scores, count, cmp_req_mpi);
+        mpi_time_ms = mpi_res.elapsed_ms;
+        speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
+        mpi_threads = mpi_res.threads_used;
+    }
 #endif
 
     pthread_mutex_unlock(&calc_lock);
@@ -421,6 +459,11 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     if (class_filter[0] == '\0') {
         return SendErrorResponse(conn, 400, "Missing required query parameter: class");
     }
+    int req_threads = get_thread_count(ri);
+
+    char cls_mpi_str[16] = "";
+    mg_get_var(ri->query_string ? ri->query_string : "", ql, "mpi_processes", cls_mpi_str, sizeof(cls_mpi_str));
+    int cls_req_mpi = atoi(cls_mpi_str);
 
     char **subjects = NULL;
     int subject_count = db_get_class_subject_names(global_db, class_filter, &subjects);
@@ -456,12 +499,14 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
     }
 
     int prev_threads = omp_get_max_threads();
+    int saved_g_threads = g_num_threads;
 
     for (int s_idx = 0; s_idx < subject_count; s_idx++) {
         const char *subject_name = subjects[s_idx];
         int count = 0;
+        int fetch_t = req_threads > 0 ? req_threads : prev_threads;
         double t_db = omp_get_wtime();
-        double *scores = db_get_scores_array(global_db, class_filter, subject_name, &count);
+        double *scores = db_get_scores_array_parallel(global_db, class_filter, subject_name, &count, fetch_t);
         double db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
 
         if (!scores || count == 0) {
@@ -471,15 +516,20 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
 
         omp_set_num_threads(1);
         calc_result_t serial = run_serial(scores, count);
-        omp_set_num_threads(prev_threads);
 
+        if (req_threads > 0) {
+            omp_set_num_threads(req_threads);
+            g_num_threads = req_threads;
+        } else {
+            omp_set_num_threads(prev_threads);
+        }
         calc_result_t parallel = run_parallel(scores, count);
         calc_result_t pt_res   = run_pthread(scores, count);
 
 #ifdef ENABLE_MPI
         int cmd = MPI_CMD_CALC_SCORES;
         MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        calc_result_t mpi_res = run_mpi(scores, count);
+        calc_result_t mpi_res = run_mpi(scores, count, cls_req_mpi);
         double mpi_time_ms = mpi_res.elapsed_ms;
         double speedup_mpi = (mpi_time_ms > 0) ? serial.elapsed_ms / mpi_time_ms : 0.0;
         int mpi_threads = mpi_res.threads_used;
@@ -547,6 +597,8 @@ int CalcClassCompareHandler(struct mg_connection *conn, void *cbdata)
         buf_append(&out_buf, &out_len, &out_cap, subj_json);
     }
 
+    omp_set_num_threads(prev_threads);
+    g_num_threads = saved_g_threads;
     pthread_mutex_unlock(&calc_lock);
     buf_append(&out_buf, &out_len, &out_cap, "\n  ]");
 
@@ -596,6 +648,13 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
 
     int     count  = 0;
 
+    /* Parse optional process count before fetch so we can pass it to parallel fetch */
+    const char *mpi_qs  = ri->query_string ? ri->query_string : "";
+    size_t      mpi_qsl = strlen(mpi_qs);
+    char mpi_proc_str[16] = "";
+    mg_get_var(mpi_qs, mpi_qsl, "mpi_processes", mpi_proc_str, sizeof(mpi_proc_str));
+    int req_mpi = atoi(mpi_proc_str);
+
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += 30;
@@ -604,7 +663,8 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
     }
 
     double  t_db   = omp_get_wtime();
-    double *scores = db_get_scores_array(global_db, c_ptr, s_ptr, &count);
+    double *scores = db_get_scores_array_parallel(global_db, c_ptr, s_ptr, &count,
+                                                   req_mpi > 0 ? req_mpi : 2);
     double  db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
     if (!scores || count == 0) {
         if (scores) free(scores);
@@ -617,8 +677,8 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
     int cmd = MPI_CMD_CALC_SCORES;
     MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    calc_result_t r = run_mpi(scores, count);
-    
+    calc_result_t r = run_mpi(scores, count, req_mpi);
+
     pthread_mutex_unlock(&calc_lock);
     free(scores);
 

@@ -114,7 +114,11 @@ int main(int argc, char *argv[])
 {
 #ifdef ENABLE_MPI
     int mpi_rank = 0, mpi_world_size = 1;
-    MPI_Init(&argc, &argv);
+    int mpi_provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &mpi_provided);
+    if (mpi_provided < MPI_THREAD_FUNNELED)
+        fprintf(stderr, "[MPI] Warning: MPI_THREAD_FUNNELED not supported "
+                        "(provided=%d) — hybrid safety not guaranteed\n", mpi_provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
 
@@ -207,6 +211,10 @@ int main(int argc, char *argv[])
                                 CorrPthreadHandler,  0);
     mg_set_request_handler(ctx, "/api/calculate/correlation/compare",
                                 CorrCompareHandler,  0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/all-subjects",
+                                CorrAllSubjectsHandler, 0);
+    mg_set_request_handler(ctx, "/api/calculate/correlation/all-subjects-method",
+                                CorrAllSubjectsMethodHandler, 0);
     mg_set_request_handler(ctx, HEALTH_URI,          HealthHandler,       0);
     /* Classes & Subjects need explicit + wildcard registration so both
        /api/classes  and  /api/classes/{name}  are matched */

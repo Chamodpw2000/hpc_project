@@ -7,15 +7,16 @@ import ClassAnalysisTab from "./ClassAnalysisTab";
 const API = "http://localhost:8090";
 
 interface GradeDistribution {
-  A_90_100: number;
-  B_80_89: number;
-  C_70_79: number;
-  D_60_69: number;
-  F_below_60: number;
+  A_90_100?: number;
+  B_80_89?: number;
+  C_70_79?: number;
+  D_60_69?: number;
+  F_below_60?: number;
+  [key: string]: number | undefined;
 }
 
 interface Statistics {
-  sum: number;
+  sum?: number;
   mean: number;
   median: number;
   variance: number;
@@ -29,7 +30,7 @@ interface CalcResult {
   threads_used: number;
   scores_count: number;
   elapsed_ms: number;
-  sort_time_ms: number;
+  sort_time_ms?: number;
   db_fetch_ms: number;
   statistics: Statistics;
   grade_distribution: GradeDistribution;
@@ -92,9 +93,10 @@ function GradeBar({ grade, count, total, color }: Readonly<{ grade: string; coun
   );
 }
 
-export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean }>) {
-  const total = result.grade_distribution.A_90_100 + result.grade_distribution.B_80_89 +
-    result.grade_distribution.C_70_79 + result.grade_distribution.D_60_69 + result.grade_distribution.F_below_60;
+export function ResultPanel({ result, color, totalMs, hideRounding, hideTiming }: Readonly<{ result: CalcResult; color: string; totalMs?: number | null; hideRounding?: boolean; hideTiming?: boolean }>) {
+  const gd = result.grade_distribution;
+  const total = (gd.A_90_100 ?? 0) + (gd.B_80_89 ?? 0) +
+    (gd.C_70_79 ?? 0) + (gd.D_60_69 ?? 0) + (gd.F_below_60 ?? 0);
 
   return (
     <div className={`border ${color} rounded-xl p-5 bg-zinc-900/50`}>
@@ -105,29 +107,31 @@ export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{
         </span>
       </div>
 
-      <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center space-y-1">
-        <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Time Breakdown</div>
-        <div className="grid grid-cols-3 gap-1 text-center mt-1">
-          <div>
-            <div className="text-xs text-zinc-500">DB Fetch</div>
-            <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(result.db_fetch_ms)}</div>
+      {!hideTiming && (
+        <div className="mb-4 p-3 bg-zinc-800/50 rounded-lg text-center space-y-1">
+          <div className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">Time Breakdown</div>
+          <div className="grid grid-cols-3 gap-1 text-center mt-1">
+            <div>
+              <div className="text-xs text-zinc-500">DB Fetch</div>
+              <div className="text-sm font-bold text-yellow-400 font-mono">{formatTime(result.db_fetch_ms)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Calculation</div>
+              <div className="text-sm font-bold text-white font-mono">{formatTime(result.elapsed_ms)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-zinc-500">Sort</div>
+              <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms ?? 0)}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-zinc-500">Calculation</div>
-            <div className="text-sm font-bold text-white font-mono">{formatTime(result.elapsed_ms)}</div>
-          </div>
-          <div>
-            <div className="text-xs text-zinc-500">Sort</div>
-            <div className="text-sm font-bold text-zinc-300 font-mono">{formatTime(result.sort_time_ms)}</div>
-          </div>
+          {totalMs != null && !hideRounding && (
+            <div className="mt-2 pt-2 border-t border-zinc-700">
+              <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
+              <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
+            </div>
+          )}
         </div>
-        {totalMs != null && !hideRounding && (
-          <div className="mt-2 pt-2 border-t border-zinc-700">
-            <div className="text-xs text-zinc-500">Total Wall Time (client)</div>
-            <div className="text-lg font-black text-emerald-400 font-mono">{formatTime(totalMs)}</div>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2 mb-4">
         <StatCard label="Mean" value={result.statistics.mean.toFixed(2)} />
@@ -140,11 +144,11 @@ export function ResultPanel({ result, color, totalMs, hideRounding }: Readonly<{
 
       <div className="space-y-1.5">
         <div className="text-xs text-zinc-400 mb-2 font-semibold uppercase tracking-wider">Grade Distribution</div>
-        <GradeBar grade="A" count={result.grade_distribution.A_90_100} total={total} color="bg-emerald-500" />
-        <GradeBar grade="B" count={result.grade_distribution.B_80_89} total={total} color="bg-blue-500" />
-        <GradeBar grade="C" count={result.grade_distribution.C_70_79} total={total} color="bg-yellow-500" />
-        <GradeBar grade="D" count={result.grade_distribution.D_60_69} total={total} color="bg-orange-500" />
-        <GradeBar grade="F" count={result.grade_distribution.F_below_60} total={total} color="bg-red-500" />
+        <GradeBar grade="A" count={gd.A_90_100  ?? 0} total={total} color="bg-emerald-500" />
+        <GradeBar grade="B" count={gd.B_80_89   ?? 0} total={total} color="bg-blue-500" />
+        <GradeBar grade="C" count={gd.C_70_79   ?? 0} total={total} color="bg-yellow-500" />
+        <GradeBar grade="D" count={gd.D_60_69   ?? 0} total={total} color="bg-orange-500" />
+        <GradeBar grade="F" count={gd.F_below_60 ?? 0} total={total} color="bg-red-500" />
       </div>
     </div>
   );
@@ -187,6 +191,9 @@ export default function AnalyticsPage() {
   const [mpiTotalMs, setMpiTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [numStudents, setNumStudents] = useState(100);
+  const [openmpThreads, setOpenmpThreads] = useState(4);
+  const [pthreadThreads, setPthreadThreads] = useState(4);
+  const [mpiProcesses, setMpiProcesses] = useState(2);
 
   async function removeDuplicates() {
     setLoading("remove-dups");
@@ -244,7 +251,7 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/parallel`);
+      const res = await fetch(`${API}/api/calculate/parallel?threads=${openmpThreads}`);
       const json = await res.json();
       setParallelOnly(json.data);
       setParallelTotalMs(performance.now() - t0);
@@ -259,7 +266,7 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/pthread`);
+      const res = await fetch(`${API}/api/calculate/pthread?threads=${pthreadThreads}`);
       const json = await res.json();
       setPthreadOnly(json.data);
       setPthreadTotalMs(performance.now() - t0);
@@ -274,8 +281,64 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/compare`);
+      // Run sequentially so each request acquires calc_lock in turn without
+      // racing — parallel Promise.all causes all timers to start at the same
+      // moment, so if one holds the lock for a while the others time out (503).
+      const sJson   = await fetch(`${API}/api/calculate/serial`).then(r => r.json());
+      const parJson = await fetch(`${API}/api/calculate/parallel?threads=${openmpThreads}`).then(r => r.json());
+      const ptJson  = await fetch(`${API}/api/calculate/pthread?threads=${pthreadThreads}`).then(r => r.json());
+      const mpiJson = await fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`).then(r => r.json()).catch(() => null);
+
+      if (!sJson?.data || !parJson?.data || !ptJson?.data)
+        throw new Error(sJson?.message ?? parJson?.message ?? ptJson?.message ?? "Request failed");
+
+      const s: CalcResult   = sJson.data;
+      const par: CalcResult = parJson.data;
+      const pt: CalcResult  = ptJson.data;
+      const mpi: CalcResult | undefined = mpiJson?.data ?? undefined;
+
+      const speedup         = par.elapsed_ms > 0 ? s.elapsed_ms / par.elapsed_ms : 0;
+      const speedup_pthread = pt.elapsed_ms  > 0 ? s.elapsed_ms / pt.elapsed_ms  : 0;
+      const speedup_mpi     = mpi && mpi.elapsed_ms > 0 ? s.elapsed_ms / mpi.elapsed_ms : undefined;
+
+      setCompareData({
+        serial: s, parallel: par, pthread: pt, mpi,
+        comparison: {
+          serial_time_ms:   s.elapsed_ms,
+          parallel_time_ms: par.elapsed_ms,
+          pthread_time_ms:  pt.elapsed_ms,
+          mpi_time_ms:      mpi?.elapsed_ms,
+          db_fetch_ms:      s.db_fetch_ms,
+          speedup,
+          speedup_pthread,
+          speedup_mpi,
+          serial_threads:   s.threads_used,
+          parallel_threads: par.threads_used,
+          pthread_threads:  pt.threads_used,
+          mpi_threads:      mpi?.threads_used,
+          data_size:        s.scores_count,
+          improvement_pct:  (speedup - 1) * 100,
+        },
+      });
+      setCompareTotalMs(performance.now() - t0);
+    } catch (e) {
+      setError(`Comparison failed: ${e}`);
+    }
+    setLoading(null);
+  }
+
+  async function runCompareFast() {
+    setLoading("compare-fast");
+    setError(null);
+    const t0 = performance.now();
+    try {
+      const res  = await fetch(
+        `${API}/api/calculate/compare?threads=${openmpThreads}&pthread_threads=${pthreadThreads}&mpi_processes=${mpiProcesses}`
+      );
       const json = await res.json();
+      if (!json?.data?.serial || !json?.data?.parallel || !json?.data?.pthread)
+        throw new Error(json?.message ?? "Request failed");
+
       setCompareData(json.data);
       setCompareTotalMs(performance.now() - t0);
     } catch (e) {
@@ -289,7 +352,7 @@ export default function AnalyticsPage() {
     setError(null);
     const t0 = performance.now();
     try {
-      const res = await fetch(`${API}/api/calculate/mpi`);
+      const res = await fetch(`${API}/api/calculate/mpi?mpi_processes=${mpiProcesses}`);
       const json = await res.json();
       setMpiOnly(json.data);
       setMpiTotalMs(performance.now() - t0);
@@ -449,43 +512,99 @@ export default function AnalyticsPage() {
 
         {/* Calculation Buttons */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">Get Statistics</h2>
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={runSerial}
-              disabled={loading !== null}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "serial" ? "Running..." : "Run Serial"}
-            </button>
-            <button
-              onClick={runParallel}
-              disabled={loading !== null}
-              className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
-            </button>
-            <button
-              onClick={runPthread}
-              disabled={loading !== null}
-              className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "pthread" ? "Running..." : "Run Pthreads"}
-            </button>
-            <button
-              onClick={runMpi}
-              disabled={loading !== null}
-              className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
-            >
-              {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
-            </button>
-            <button
-              onClick={runCompare}
-              disabled={loading !== null}
-              className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
-            >
-              {loading === "compare" ? "Comparing..." : "Compare All"}
-            </button>
+          <h2 className="text-lg font-semibold mb-4">2. Get Statistics</h2>
+          <div className="space-y-3">
+            {/* Serial & MPI */}
+            <div className="flex flex-wrap gap-3 items-end">
+              <button
+                onClick={runSerial}
+                disabled={loading !== null}
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+              >
+                {loading === "serial" ? "Running..." : "Run Serial"}
+              </button>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">MPI Processes</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={64}
+                  value={mpiProcesses}
+                  onChange={e => setMpiProcesses(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={loading !== null}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={runMpi}
+                disabled={loading !== null}
+                className="bg-green-600 hover:bg-green-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+              >
+                {loading === "mpi" ? "Running..." : "Run MPI (Distributed)"}
+              </button>
+            </div>
+
+            {/* Parallel methods with thread count inputs */}
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">OpenMP Threads</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={256}
+                  value={openmpThreads}
+                  onChange={e => setOpenmpThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={loading !== null}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={runParallel}
+                disabled={loading !== null}
+                className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+              >
+                {loading === "parallel" ? "Running..." : "Run Parallel (OpenMP)"}
+              </button>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Pthreads</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={256}
+                  value={pthreadThreads}
+                  onChange={e => setPthreadThreads(Math.max(1, parseInt(e.target.value) || 1))}
+                  disabled={loading !== null}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 w-20 text-white font-mono disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={runPthread}
+                disabled={loading !== null}
+                className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 px-5 py-2 rounded font-semibold transition-colors"
+              >
+                {loading === "pthread" ? "Running..." : "Run Pthreads"}
+              </button>
+            </div>
+
+            {/* Compare All */}
+            <div className="flex flex-wrap gap-4 items-end pt-1 border-t border-zinc-800">
+              <button
+                onClick={runCompare}
+                disabled={loading !== null}
+                className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+              >
+                {loading === "compare" ? "Comparing..." : "Compare All"}
+              </button>
+              <button
+                onClick={runCompareFast}
+                disabled={loading !== null}
+                className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 px-6 py-2 rounded font-bold transition-colors text-lg"
+              >
+                {loading === "compare-fast" ? "Comparing..." : "Compare All (Fast)"}
+              </button>
+              <span className="text-xs text-zinc-500 self-end pb-2">Uses thread counts from above · MPI Processes applies to MPI</span>
+            </div>
           </div>
         </div>
 
