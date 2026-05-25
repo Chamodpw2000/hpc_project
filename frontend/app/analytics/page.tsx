@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import CorrelationTab from "./CorrelationTab";
 import ClassAnalysisTab from "./ClassAnalysisTab";
+import ScalingTab from "./ScalingTab";
 
 const API = "http://localhost:8090";
 
@@ -157,7 +158,7 @@ export function ResultPanel({ result, color, totalMs, hideRounding, hideTiming }
 export default function AnalyticsPage() {
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"simple" | "correlation" | "class_analysis">("simple");
+  const [activeTab, setActiveTab] = useState<"simple" | "correlation" | "class_analysis" | "scaling">("simple");
   const [seedClasses, setSeedClasses] = useState<string[]>([]);
   const [seedClass, setSeedClass]     = useState("");
 
@@ -442,6 +443,16 @@ export default function AnalyticsPage() {
           >
             Class Analysis
           </button>
+          <button
+            onClick={() => setActiveTab("scaling")}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              activeTab === "scaling"
+                ? "bg-zinc-700 text-white shadow"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Scaling Benchmarks
+          </button>
         </div>
 
         {/* ── Class Analysis Tab ── */}
@@ -718,6 +729,9 @@ export default function AnalyticsPage() {
 
         {/* ── Correlation Based Calculations Tab ── */}
         {activeTab === "correlation" && <CorrelationTab />}
+
+        {/* ── Scaling Benchmarks Tab ── */}
+        {activeTab === "scaling" && <ScalingTab />}
 
       </div>
     </div>

@@ -29,6 +29,9 @@ int CalcPthreadHandler(struct mg_connection *conn, void *cbdata);
 /* DELETE /api/students/remove-duplicates – remove duplicate student records and their scores */
 int RemoveDuplicatesHandler(struct mg_connection *conn, void *cbdata);
 
+/* GET /api/calculate/scaling - run benchmarking across varying thread and process counts */
+int CalcScalingHandler(struct mg_connection *conn, void *cbdata);
+
 #ifdef ENABLE_MPI
 /* GET /api/calculate/mpi – run MPI-distributed statistical analysis */
 int CalcMpiHandler(struct mg_connection *conn, void *cbdata);

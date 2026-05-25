@@ -688,3 +688,152 @@ int CalcMpiHandler(struct mg_connection *conn, void *cbdata)
         "MPI distributed calculation completed", data);
 }
 #endif /* ENABLE_MPI */
+
+int CalcScalingHandler(struct mg_connection *conn, void *cbdata)
+{
+    (void)cbdata;
+    const struct mg_request_info *ri = mg_get_request_info(conn);
+
+    if (strcmp(ri->request_method, "GET") != 0)
+        return SendErrorResponse(conn, 405, "Only GET method supported");
+    if (!global_db)
+        return SendErrorResponse(conn, 500, "Database connection not available");
+
+    char cls_filter[256], sub_filter[256];
+    get_filter_params(ri, cls_filter, sizeof(cls_filter), sub_filter, sizeof(sub_filter));
+    const char *c_ptr = cls_filter[0] ? cls_filter : NULL;
+    const char *s_ptr = sub_filter[0] ? sub_filter : NULL;
+
+    int count = 0;
+
+    struct timespec timeout;
+    clock_gettime(CLOCK_REALTIME, &timeout);
+    timeout.tv_sec += 30;
+    if (pthread_mutex_timedlock(&calc_lock, &timeout) == ETIMEDOUT) {
+        return SendErrorResponse(conn, 503, "Server busy, calculation in progress");
+    }
+
+    double t_db = omp_get_wtime();
+    /* Fetch using maximum threads */
+    double *scores = db_get_scores_array_parallel(global_db, c_ptr, s_ptr, &count, omp_get_max_threads());
+    double db_fetch_ms = (omp_get_wtime() - t_db) * 1000.0;
+
+    if (!scores || count == 0) {
+        if (scores) free(scores);
+        pthread_mutex_unlock(&calc_lock);
+        return SendErrorResponse(conn, 404, "No scores found matching criteria. Seed data first.");
+    }
+
+    int prev_omp = omp_get_max_threads();
+    int saved_threads = g_num_threads;
+
+    /* 1. Run Serial Baseline */
+    omp_set_num_threads(1);
+    calc_result_t ser_res = run_serial(scores, count);
+    double serial_time = ser_res.elapsed_ms;
+
+    /* 2. Run OpenMP scaling loop */
+    int omp_threads_to_test[] = {1, 2, 4, 8, 12, 16};
+    int num_omp_tests = sizeof(omp_threads_to_test) / sizeof(omp_threads_to_test[0]);
+    double omp_times[6];
+    for (int i = 0; i < num_omp_tests; i++) {
+        omp_set_num_threads(omp_threads_to_test[i]);
+        calc_result_t res = run_parallel(scores, count);
+        omp_times[i] = res.elapsed_ms;
+    }
+
+    /* 3. Run Pthreads scaling loop */
+    int pt_threads_to_test[] = {1, 2, 4, 8, 12, 16};
+    int num_pt_tests = sizeof(pt_threads_to_test) / sizeof(pt_threads_to_test[0]);
+    double pt_times[6];
+    for (int i = 0; i < num_pt_tests; i++) {
+        g_num_threads = pt_threads_to_test[i];
+        calc_result_t res = run_pthread(scores, count);
+        pt_times[i] = res.count == -1 ? -1.0 : res.elapsed_ms;
+    }
+
+    /* Reset backend threads to original configuration */
+    omp_set_num_threads(prev_omp);
+    g_num_threads = saved_threads;
+
+    /* 4. Run MPI scaling loop (if enabled) */
+#ifdef ENABLE_MPI
+    int actual_mpi_tests = 0;
+    int mpi_procs_to_test[] = {1, 2, 4, 8, 12, 16};
+    int num_mpi_tests = sizeof(mpi_procs_to_test) / sizeof(mpi_procs_to_test[0]);
+    double mpi_times[6];
+    int mpi_procs_used[6];
+    int mpi_world_size = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_world_size);
+    for (int i = 0; i < num_mpi_tests; i++) {
+        int P = mpi_procs_to_test[i];
+        if (P <= mpi_world_size) {
+            int cmd = MPI_CMD_CALC_SCORES;
+            MPI_Bcast(&cmd, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            calc_result_t res = run_mpi(scores, count, P);
+            mpi_times[actual_mpi_tests] = res.elapsed_ms;
+            mpi_procs_used[actual_mpi_tests] = res.threads_used;
+            actual_mpi_tests++;
+        }
+    }
+#endif
+
+    pthread_mutex_unlock(&calc_lock);
+    free(scores);
+
+    /* Construct JSON response */
+    char *data = (char *)malloc(16384);
+    if (!data) return SendErrorResponse(conn, 500, "Memory allocation failed");
+
+    size_t len = 0;
+    len += snprintf(data + len, 16384 - len,
+        "{\n"
+        "    \"data_size\": %d,\n"
+        "    \"db_fetch_ms\": %.4f,\n"
+        "    \"serial_time_ms\": %.4f,\n"
+        "    \"openmp\": [\n",
+        count, db_fetch_ms, serial_time);
+
+    for (int i = 0; i < num_omp_tests; i++) {
+        double speedup = omp_times[i] > 0 ? (serial_time / omp_times[i]) : 0.0;
+        double efficiency = omp_times[i] > 0 ? (speedup / omp_threads_to_test[i]) : 0.0;
+        len += snprintf(data + len, 16384 - len,
+            "      { \"threads\": %d, \"time_ms\": %.4f, \"speedup\": %.4f, \"efficiency\": %.4f }%s\n",
+            omp_threads_to_test[i], omp_times[i], speedup, efficiency,
+            (i == num_omp_tests - 1) ? "" : ",");
+    }
+
+    len += snprintf(data + len, 16384 - len,
+        "    ],\n"
+        "    \"pthread\": [\n");
+
+    for (int i = 0; i < num_pt_tests; i++) {
+        double speedup = pt_times[i] > 0 ? (serial_time / pt_times[i]) : 0.0;
+        double efficiency = pt_times[i] > 0 ? (speedup / pt_threads_to_test[i]) : 0.0;
+        len += snprintf(data + len, 16384 - len,
+            "      { \"threads\": %d, \"time_ms\": %.4f, \"speedup\": %.4f, \"efficiency\": %.4f }%s\n",
+            pt_threads_to_test[i], pt_times[i], speedup, efficiency,
+            (i == num_pt_tests - 1) ? "" : ",");
+    }
+
+    len += snprintf(data + len, 16384 - len,
+        "    ],\n"
+        "    \"mpi\": [\n");
+
+#ifdef ENABLE_MPI
+    for (int i = 0; i < actual_mpi_tests; i++) {
+        double speedup = mpi_times[i] > 0 ? (serial_time / mpi_times[i]) : 0.0;
+        double efficiency = mpi_times[i] > 0 ? (speedup / mpi_procs_used[i]) : 0.0;
+        len += snprintf(data + len, 16384 - len,
+            "      { \"threads\": %d, \"time_ms\": %.4f, \"speedup\": %.4f, \"efficiency\": %.4f }%s\n",
+            mpi_procs_used[i], mpi_times[i], speedup, efficiency,
+            (i == actual_mpi_tests - 1) ? "" : ",");
+    }
+#endif
+
+    len += snprintf(data + len, 16384 - len, "    ]\n}");
+
+    int result = SendJSONResponse(conn, "success", "Scaling benchmark calculation completed", data);
+    free(data);
+    return result;
+}

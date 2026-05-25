@@ -54,6 +54,7 @@
 #define CALC_PARALLEL_URI "/api/calculate/parallel"
 #define CALC_COMPARE_URI  "/api/calculate/compare"
 #define CALC_CLASS_COMPARE_URI "/api/calculate/class/compare"
+#define CALC_SCALING_URI  "/api/calculate/scaling"
 #define CALC_MPI_URI      "/api/calculate/mpi"
 #define CLASSES_URI       "/api/classes"
 #define SUBJECTS_URI      "/api/subjects"
@@ -196,6 +197,7 @@ int main(int argc, char *argv[])
     mg_set_request_handler(ctx, CALC_PARALLEL_URI,   CalcParallelHandler, 0);
     mg_set_request_handler(ctx, CALC_COMPARE_URI,    CalcCompareHandler,  0);
     mg_set_request_handler(ctx, CALC_CLASS_COMPARE_URI, CalcClassCompareHandler, 0);
+    mg_set_request_handler(ctx, CALC_SCALING_URI,     CalcScalingHandler,  0);
     mg_set_request_handler(ctx, "/api/calculate/pthread",
                                 CalcPthreadHandler,  0);
 #ifdef ENABLE_MPI
